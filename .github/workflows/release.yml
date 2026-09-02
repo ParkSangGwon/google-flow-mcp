@@ -1,0 +1,41 @@
+name: Release
+
+# Pushing a v* tag publishes that version to npm through trusted publishing (OIDC) with provenance.
+# The first version of a package must be published manually once (npm login + npm publish); after that,
+# configure GitHub Actions as the trusted publisher for the package on npmjs.com and tags do the rest.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # trusted publishing requires npm >= 11.5
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run check
+      - name: Check whether this version is already on npm
+        id: check
+        run: |
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "$PKG@$VER already exists on npm — skipping publish"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        run: npm publish --provenance --access public

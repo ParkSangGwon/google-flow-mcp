@@ -21,7 +21,9 @@
     "video-generation",
     "scene-builder",
     "playwright",
-    "claude"
+    "claude",
+    "mcp-server",
+    "modelcontextprotocol"
   ],
   "engines": {
     "node": ">=20"
@@ -46,7 +48,7 @@
     "docs"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -57,7 +59,8 @@
     "docs:tools": "tsx scripts/gen-tool-docs.ts",
     "docs:check": "tsx scripts/gen-tool-docs.ts --check",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run test:contract && npm run docs:check",
-    "prepublishOnly": "npm run check"
+    "prepublishOnly": "npm run check",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
