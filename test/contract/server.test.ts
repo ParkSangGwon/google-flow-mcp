@@ -41,6 +41,9 @@ describe('stdio contract', () => {
       'flow_generate_video',
       'flow_generate_image',
       'flow_media_download',
+      'flow_scene_add',
+      'flow_scene_status',
+      'flow_scene_extend',
     ]);
     const gen = tools.find((t) => t.name === 'flow_generate_video');
     expect(gen?.inputSchema).toMatchObject({

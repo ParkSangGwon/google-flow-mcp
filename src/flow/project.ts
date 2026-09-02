@@ -4,8 +4,9 @@ import type { Logger } from '../lib/logger.js';
 import { sleep } from './ui.js';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+// Scene Builder lives at /project/<id>/scene/<id> (observed 2026-09); /scenes/ is accepted for older links
 export const FLOW_URL_RE = new RegExp(
-  `^https://labs\\.google/fx/(?:([a-z]{2}(?:-[A-Za-z]{2})?)/)?tools/flow(?:/project/(${UUID})(?:/scenes/(${UUID}))?)?`,
+  `^https://labs\\.google/fx/(?:([a-z]{2}(?:-[A-Za-z]{2})?)/)?tools/flow(?:/project/(${UUID})(?:/scenes?/(${UUID}))?)?`,
 );
 
 export interface FlowLocation {
@@ -31,7 +32,7 @@ export function requireProjectUrl(url: string): { projectId: string; location: F
 export function sceneUrl(projectUrl: string, sceneId: string): string {
   const { location } = requireProjectUrl(projectUrl);
   const locale = location.locale ? `${location.locale}/` : '';
-  return `https://labs.google/fx/${locale}tools/flow/project/${location.projectId ?? ''}/scenes/${sceneId}`;
+  return `https://labs.google/fx/${locale}tools/flow/project/${location.projectId ?? ''}/scene/${sceneId}`;
 }
 
 // Navigates only when the tab is not already on that project (scene view counts as a different place)

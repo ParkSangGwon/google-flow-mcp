@@ -16,17 +16,18 @@ describe('flow urls', () => {
       projectId: P,
       sceneId: undefined,
     });
-    expect(parseFlowUrl(`https://labs.google/fx/en/tools/flow/project/${P}/scenes/${S}`)).toEqual({
+    expect(parseFlowUrl(`https://labs.google/fx/en/tools/flow/project/${P}/scene/${S}`)).toEqual({
       locale: 'en',
       projectId: P,
       sceneId: S,
     });
+    expect(parseFlowUrl(`https://labs.google/fx/tools/flow/project/${P}/scenes/${S}`)?.sceneId).toBe(S);
     expect(parseFlowUrl('https://accounts.google.com/signin')).toBeNull();
   });
 
   it('builds a scene URL that keeps the project locale', () => {
     expect(sceneUrl(`https://labs.google/fx/ko/tools/flow/project/${P}`, S)).toBe(
-      `https://labs.google/fx/ko/tools/flow/project/${P}/scenes/${S}`,
+      `https://labs.google/fx/ko/tools/flow/project/${P}/scene/${S}`,
     );
     expect(() => sceneUrl('https://labs.google/fx/tools/flow', S)).toThrow(/project URL/);
   });

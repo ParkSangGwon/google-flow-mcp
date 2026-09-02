@@ -37,6 +37,64 @@ export async function mediaIds(page: Page): Promise<string[]> {
     .catch(() => []);
 }
 
+export interface MediaElement {
+  id: string;
+  tag: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Centre of the smallest laid-out ancestor of a media element (its grid tile), scrolled into view. Grid <video>
+// elements are lazy (preload=none) and count as invisible to Playwright, so tiles are targeted by geometry.
+export async function mediaTileCentre(page: Page, idPrefix: string): Promise<{ x: number; y: number } | null> {
+  return page
+    .evaluate((prefix) => {
+      // Poster <img> first: a detached preview <video> may carry the id without belonging to any tile
+      const el =
+        document.querySelector(`img[src*="name=${prefix}"]`) ?? document.querySelector(`video[src*="name=${prefix}"]`);
+      if (!el) return null;
+      let node: Element | null = el;
+      while (node && (node.getBoundingClientRect().width < 40 || node.getBoundingClientRect().height < 40)) {
+        node = node.parentElement;
+      }
+      if (!node) return null;
+      const r0 = node.getBoundingClientRect();
+      if (r0.width > 600 || r0.height > 700) return null; // bigger than a tile: not a grid tile
+      node.scrollIntoView({ block: 'center' });
+      const r = node.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    }, idPrefix)
+    .catch(() => null);
+}
+
+// Every laid-out element that references a media id, with its position (used to map ids to tiles/timeline clips)
+export async function mediaElements(page: Page): Promise<MediaElement[]> {
+  return page
+    .evaluate((source) => {
+      const re = new RegExp(source);
+      const out: MediaElement[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>('img, video, source')) {
+        const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
+        const m = re.exec(src);
+        if (!m?.[1]) continue;
+        const box = (el.tagName === 'SOURCE' ? el.parentElement : el)?.getBoundingClientRect();
+        if (!box) continue;
+        out.push({
+          id: m[1],
+          tag: el.tagName,
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          w: Math.round(box.width),
+          h: Math.round(box.height),
+        });
+      }
+      return out;
+    }, MEDIA_RE.source)
+    .catch((): MediaElement[] => []);
+}
+
 export interface Downloaded {
   path: string;
   content_type: string;

@@ -11,13 +11,11 @@ export const LABELS = {
   uploadMedia: ['미디어 업로드', 'Upload media'],
   generating: ['생성 중', '만드는 중', 'Generating', 'generating', 'scheduled', 'queue'],
   policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content'],
-  // Scene Builder labels: Korean strings are provisional until verified live (see docs/scene-builder.md)
+  // Scene Builder (Korean strings observed live 2026-09-02, see docs/scene-builder.md)
   sceneAdd: ['장면에 추가', 'Add to [Ss]cene'],
+  sceneNew: ['장면 만들기', '새 장면', 'Create scene', 'New scene'],
+  sceneAddClip: ['클립 추가', 'Add clip'],
   sceneExtend: ['확장', 'Extend'],
-  sceneAddMenu: ['추가', 'Add'],
-  sceneJump: ['바로 이동', 'Jump to'],
-  sceneDownload: ['장면 다운로드', 'Download scene'],
-  sceneNew: ['새 장면', 'New scene'],
 } as const;
 
 export type LabelKey = keyof typeof LABELS;

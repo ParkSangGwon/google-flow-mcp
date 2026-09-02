@@ -2,7 +2,10 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import type { Config } from '../config.js';
 import { FlowError } from '../lib/errors.js';
 import type { Logger } from '../lib/logger.js';
+import { RawCdp } from './cdp.js';
 import { cdpReachable, cdpUrl, launchChrome } from './chrome.js';
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export interface SessionStatus {
   connected: boolean;
@@ -16,6 +19,7 @@ export class BrowserSession {
   private browser: Browser | undefined;
   private context: BrowserContext | undefined;
   private page: Page | undefined;
+  private targetId: string | undefined;
   private attachedExisting = false;
 
   constructor(
@@ -52,6 +56,15 @@ export class BrowserSession {
     });
     this.context = this.browser.contexts()[0] ?? (await this.browser.newContext());
     this.page = await this.context.newPage();
+    // Remember the tab's CDP target id while it is healthy so close() can still kill it if the renderer hangs
+    try {
+      const cdp = await this.context.newCDPSession(this.page);
+      const info = (await cdp.send('Target.getTargetInfo')) as { targetInfo: { targetId: string } };
+      this.targetId = info.targetInfo.targetId;
+      await cdp.detach();
+    } catch (err) {
+      this.log.warn('could not read tab target id', { error: errMessage(err) });
+    }
     this.log.info('browser connected', { endpoint, attached_existing: this.attachedExisting });
     return this.page;
   }
@@ -70,14 +83,30 @@ export class BrowserSession {
     return this.context;
   }
 
-  // Close only our tab; browser.close() over CDP merely detaches and leaves Chrome running for other sessions
+  // Close only our tab; browser.close() over CDP merely detaches and leaves Chrome running for other sessions.
+  // A tab left behind with a hung renderer blocks every future connectOverCDP (Playwright attaches to all tabs),
+  // so if the polite close does not finish quickly the tab is closed at the browser level instead.
   async close(): Promise<void> {
-    const { page, browser } = this;
+    const { page, browser, targetId } = this;
     this.reset();
+    let closed = false;
     try {
-      if (page && !page.isClosed()) await page.close();
+      if (page && !page.isClosed()) {
+        closed = await Promise.race([page.close().then(() => true), sleep(5000).then(() => false)]);
+      } else {
+        closed = true;
+      }
     } catch (err) {
       this.log.warn('page close failed', { error: errMessage(err) });
+    }
+    if (!closed && targetId) {
+      try {
+        const cdp = await RawCdp.connect(this.config.cdpPort);
+        this.log.warn('tab did not close politely; closing via CDP', { targetId, ok: await cdp.closeTarget(targetId) });
+        cdp.close();
+      } catch (err) {
+        this.log.warn('CDP close failed', { error: errMessage(err) });
+      }
     }
     try {
       if (browser?.isConnected()) await browser.close();
@@ -90,6 +119,7 @@ export class BrowserSession {
     this.browser = undefined;
     this.context = undefined;
     this.page = undefined;
+    this.targetId = undefined;
   }
 }
 

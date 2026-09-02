@@ -16,6 +16,9 @@ Error codes: `BROWSER_NOT_CONNECTED`, `CHROME_LAUNCH_FAILED`, `NOT_LOGGED_IN`, `
 | [`flow_generate_video`](#flow_generate_video) | yes | Generate a video |
 | [`flow_generate_image`](#flow_generate_image) | yes | Generate an image |
 | [`flow_media_download`](#flow_media_download) | no | Download a media item |
+| [`flow_scene_add`](#flow_scene_add) | no | Create a scene from a clip |
+| [`flow_scene_status`](#flow_scene_status) | no | Read a scene timeline |
+| [`flow_scene_extend`](#flow_scene_extend) | yes | Extend the last clip of a scene |
 
 ## flow_connect
 
@@ -89,12 +92,16 @@ Annotations: `openWorldHint`
 
 | name | type | required | description |
 |---|---|---|---|
-| `action` | "none" \| "click" \| "hover" \| "press" \| "goto" | yes |  |
-| `target` | string | no | Regex matched against button/menu item text and aria-label (for click/hover) |
+| `action` | "none" \| "click" \| "hover" \| "press" \| "type" \| "goto" | yes |  |
+| `text` | string | no | Text to type for action=type (after clicking target/at if given) |
+| `target` | string | no | Regex matched against button/menu item text and aria-label (for click/hover), or "media:<id-prefix>" to target a media tile |
+| `at` | unknown[] | no | Viewport coordinates [x, y] to click/hover instead of a target (from a previous row @x,y) |
 | `key` | string | no | Key to press for action=press, e.g. Escape |
 | `url` | url | no | URL for action=goto |
 | `find` | string | no | Regex over visible text nodes; matches are returned with their position |
 | `region` | "all" \| "right" \| "bottom-right" \| "left" | yes | Restrict rows to a viewport region |
+| `media` | boolean | yes | Also list img/video elements that reference a Flow media id |
+| `watch_network` | boolean | yes | Record network requests made during the action and settle window (method, status, type, URL) |
 | `screenshot` | boolean | yes |  |
 | `settle_ms` | integer | yes | Wait after the action before the second snapshot |
 
@@ -108,6 +115,8 @@ Annotations: `openWorldHint`
 | `removed` | string[] | yes |  |
 | `rows` | string[] | yes | All rows in the region after the action (capped at 300) |
 | `matches` | string[] | no |  |
+| `media` | string[] | no | id8\|TAG\|@x,y wxh for each media element |
+| `requests` | string[] | no | METHOD status content-type URL (capped at 80) |
 | `screenshot` | string | no |  |
 
 ## flow_project_open
@@ -229,3 +238,82 @@ Annotations: `idempotentHint`, `openWorldHint`
 | `path` | string | yes |  |
 | `content_type` | string | yes |  |
 | `bytes` | number | yes |  |
+
+## flow_scene_add
+
+Open a project media item's menu and "Add to Scene → Create scene", then open the new Scene Builder view. Returns the scene URL to pass to flow_scene_extend / flow_scene_status / flow_scene_download. Costs no credits.
+
+Annotations: `openWorldHint`
+
+### Input
+
+| name | type | required | description |
+|---|---|---|---|
+| `project_url` | url | yes |  |
+| `media_id` | string | yes | Media id (or 8+ char prefix) of a video already in the project grid |
+
+### Output (plus `ok: true`)
+
+| name | type | required | description |
+|---|---|---|---|
+| `scene_url` | string | yes |  |
+| `scene_id` | string | yes |  |
+| `clips` | object[] | yes |  |
+| `total_duration_s` | number | yes |  |
+
+## flow_scene_status
+
+Open a Scene Builder view and report its clips (index, duration) and total length, plus whether an extension is still rendering. with_media_ids selects each clip to read its media id (slower). Costs no credits.
+
+Annotations: `idempotentHint`, `openWorldHint`
+
+### Input
+
+| name | type | required | description |
+|---|---|---|---|
+| `scene_url` | url | yes |  |
+| `with_media_ids` | boolean | yes |  |
+
+### Output (plus `ok: true`)
+
+| name | type | required | description |
+|---|---|---|---|
+| `scene_id` | string | yes |  |
+| `clips` | object[] | yes |  |
+| `total_duration_s` | number | yes |  |
+| `generating` | boolean | yes |  |
+
+## flow_scene_extend
+
+Scene Builder "Extend": generates a 7-second continuation of the clip at after_clip_index (must be the last clip) with Veo 3.1 - Lite and downloads it as a separate media file. Spends credits when auto_confirm=true; auto_confirm=false opens the extend prompt, fills it, takes a screenshot and cancels. Idempotent: if a clip already exists at after_clip_index+1 it is downloaded instead of generating again. resume=true only waits for / downloads a running extension.
+
+Annotations: `destructiveHint`, `idempotentHint`, `openWorldHint`
+
+### Input
+
+| name | type | required | description |
+|---|---|---|---|
+| `scene_url` | url | yes |  |
+| `prompt` | string | yes | What happens next; Flow continues motion and audio from the last frames |
+| `after_clip_index` | integer | yes | Index of the clip to extend (0-based); must be the last clip |
+| `output_dir` | string | yes |  |
+| `auto_confirm` | boolean | yes |  |
+| `resume` | boolean | yes |  |
+| `job_id` | string | no |  |
+
+### Output (plus `ok: true`)
+
+| name | type | required | description |
+|---|---|---|---|
+| `status` | "ready_for_confirmation" \| "completed" \| "already_exists" | yes |  |
+| `job_id` | string | yes |  |
+| `scene_url` | string | yes |  |
+| `clip_index` | number | yes | Index of the extension clip in the timeline |
+| `media_id` | string | no |  |
+| `file` | string | no |  |
+| `clips` | object[] | yes |  |
+| `total_duration_s` | number | yes |  |
+| `model` | string | yes |  |
+| `hop_seconds` | number | yes |  |
+| `elapsed_ms` | number | yes |  |
+| `screenshot` | string | no |  |

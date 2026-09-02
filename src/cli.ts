@@ -2,6 +2,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { RawCdp, findHungPages } from './browser/cdp.js';
 import { cdpReachable } from './browser/chrome.js';
 import { BrowserSession } from './browser/session.js';
 import { type Config, configPath, loadConfig, writeDefaultConfig } from './config.js';
@@ -18,7 +19,8 @@ Usage:
   google-flow-mcp            Run the MCP server on stdio (default)
   google-flow-mcp serve
   google-flow-mcp init       Write a default config file (${configPath()})
-  google-flow-mcp doctor     Check Chrome, CDP port, state dir and Flow login
+  google-flow-mcp doctor     Check Chrome, CDP port, state dir, hung tabs and Flow login
+  google-flow-mcp doctor --close-hung   Also close tabs whose renderer no longer responds
   google-flow-mcp --version
 `;
 
@@ -79,6 +81,24 @@ async function doctor(): Promise<void> {
     true,
     `port ${config.cdpPort} ${reachable ? 'already has a Chrome listening' : 'free (Chrome will be launched)'}`,
   );
+  if (reachable) {
+    // One tab with a hung renderer blocks every Playwright attach; surface it before trying to connect
+    const hung = await findHungPages(config.cdpPort);
+    if (hung.length > 0 && process.argv.includes('--close-hung')) {
+      const cdp = await RawCdp.connect(config.cdpPort);
+      for (const h of hung) await cdp.closeTarget(h.targetId);
+      cdp.close();
+      ok('tabs', true, `closed ${hung.length} hung tab(s): ${hung.map((h) => h.url).join(', ')}`);
+    } else {
+      ok(
+        'tabs',
+        hung.length === 0,
+        hung.length === 0
+          ? 'all tabs respond'
+          : `${hung.length} hung tab(s) block new connections (re-run with --close-hung): ${hung.map((h) => h.url).join(', ')}`,
+      );
+    }
+  }
   const ctx = buildContext({ ...config, logLevel: 'warn' });
   try {
     const page = await ctx.session.ensureConnected();

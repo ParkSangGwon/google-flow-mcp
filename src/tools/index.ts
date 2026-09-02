@@ -5,6 +5,9 @@ import { generateVideo } from './generate-video.js';
 import { inspect } from './inspect.js';
 import { mediaDownload } from './media-download.js';
 import { projectOpen } from './project-open.js';
+import { sceneAdd } from './scene-add.js';
+import { sceneExtend } from './scene-extend.js';
+import { sceneStatus } from './scene-status.js';
 import { screenshot } from './screenshot.js';
 import { status } from './status.js';
 
@@ -17,4 +20,7 @@ export const tools: readonly AnyTool[] = [
   generateVideo,
   generateImage,
   mediaDownload,
+  sceneAdd,
+  sceneStatus,
+  sceneExtend,
 ];
