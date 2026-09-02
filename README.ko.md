@@ -217,9 +217,9 @@ flowchart LR
     A --> E1["flow_scene_extend #0<br/>Veo 3.1 Lite · +7초 · 5크레딧"]
     E1 --> E2["flow_scene_extend #1<br/>+7초 · 5크레딧"]
     E2 --> N["…"]
-    V -. seed.mp4 .-> X["ffmpeg concat<br/>(로컬, 무료)"]
-    E1 -. hop1.mp4 .-> X
-    E2 -. hop2.mp4 .-> X
+    V -.->|"seed.mp4"| X["ffmpeg concat<br/>(로컬, 무료)"]
+    E1 -.->|"hop1.mp4"| X
+    E2 -.->|"hop2.mp4"| X
     X --> O["🎬 22초, 하나의 연속 무브"]
 ```
 
