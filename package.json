@@ -42,7 +42,8 @@
     "README.md",
     "README.ko.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
