@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in google-flow-mcp does not work
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: google-flow-mcp version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: locale
+    attributes:
+      label: Flow UI language shown in your Chrome
+      options: [Korean, English, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which tool, with which arguments (redact prompts if you like), and the JSON body it returned.
+    validations:
+      required: true
+  - type: textarea
+    id: inspect
+    attributes:
+      label: flow_inspect output
+      description: If a button/menu was not found, paste the `rows`/`added` lines from `flow_inspect` on that screen and attach the screenshot path it produced.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Server log excerpt
+      description: From ~/.google-flow-mcp/logs/server-YYYY-MM-DD.log around the failure.
+      render: text

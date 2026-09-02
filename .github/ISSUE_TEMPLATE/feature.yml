@@ -1,0 +1,16 @@
+name: Feature request
+description: A Flow capability the server should automate
+labels: [enhancement]
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: Which Flow feature, and how you use it in the Flow UI today
+      description: Step by step with the exact button labels you see; it saves a discovery round-trip.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Proposed tool shape
+      description: Name, inputs, outputs. Optional.
