@@ -4,7 +4,15 @@ import { takeScreenshot } from '../browser/screenshot.js';
 import type { AppContext } from '../context.js';
 import { FlowError } from '../lib/errors.js';
 import { label } from './labels.js';
-import { type Downloaded, fileNameFor, mediaElements, mediaIds, mediaTileCentre, tryDownload } from './media.js';
+import {
+  type Downloaded,
+  type TileRect,
+  fileNameFor,
+  mediaElements,
+  mediaIds,
+  mediaTileCentre,
+  tryDownload,
+} from './media.js';
 import { ensureOnProject, ensureOnScene, parseFlowUrl } from './project.js';
 import { bodyText, isVisible, pressEscape, sleep } from './ui.js';
 
@@ -204,7 +212,9 @@ export async function createSceneFromMedia(ctx: AppContext, projectUrl: string, 
   return currentScene(page);
 }
 
-async function tileMenuButton(page: Page, centre: { x: number; y: number }): Promise<{ x: number; y: number } | null> {
+// The tile's own "⋮" appears on hover inside the tile rectangle; the project header has look-alike more_vert
+// buttons a few pixels above the first grid row, so anything outside the rectangle is rejected
+async function tileMenuButton(page: Page, tile: TileRect): Promise<{ x: number; y: number } | null> {
   const buttons = page.locator('button').filter({ hasText: /more_vert/ });
   const n = await buttons.count();
   for (let i = 0; i < n; i++) {
@@ -212,10 +222,11 @@ async function tileMenuButton(page: Page, centre: { x: number; y: number }): Pro
       .nth(i)
       .boundingBox()
       .catch(() => null);
-    // The tile's own menu button sits inside the tile (≈150×266) around the hovered centre
-    if (box && Math.abs(box.x - centre.x) < 160 && Math.abs(box.y - centre.y) < 200) {
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    }
+    if (!box) continue;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const inside = cx >= tile.left && cx <= tile.left + tile.width && cy >= tile.top && cy <= tile.top + tile.height;
+    if (inside) return { x: cx, y: cy };
   }
   return null;
 }

@@ -46,9 +46,18 @@ export interface MediaElement {
   h: number;
 }
 
-// Centre of the smallest laid-out ancestor of a media element (its grid tile), scrolled into view. Grid <video>
+export interface TileRect {
+  x: number; // centre
+  y: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+// The smallest laid-out ancestor of a media element (its grid tile), scrolled into view. Grid <video>
 // elements are lazy (preload=none) and count as invisible to Playwright, so tiles are targeted by geometry.
-export async function mediaTileCentre(page: Page, idPrefix: string): Promise<{ x: number; y: number } | null> {
+export async function mediaTileCentre(page: Page, idPrefix: string): Promise<TileRect | null> {
   return page
     .evaluate((prefix) => {
       // Poster <img> first: a detached preview <video> may carry the id without belonging to any tile
@@ -64,7 +73,14 @@ export async function mediaTileCentre(page: Page, idPrefix: string): Promise<{ x
       if (r0.width > 600 || r0.height > 700) return null; // bigger than a tile: not a grid tile
       node.scrollIntoView({ block: 'center' });
       const r = node.getBoundingClientRect();
-      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      return {
+        x: Math.round(r.x + r.width / 2),
+        y: Math.round(r.y + r.height / 2),
+        left: Math.round(r.x),
+        top: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      };
     }, idPrefix)
     .catch(() => null);
 }
