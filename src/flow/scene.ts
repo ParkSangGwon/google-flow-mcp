@@ -81,8 +81,13 @@ async function totalDurationSeconds(page: Page): Promise<number | undefined> {
 
 const PENDING_RE = /확장\(|Extend\(|연장하세요|extend with a prompt/i;
 
+// The timeline renders after the rest of the scene view; give it up to 15 s before reporting an empty scene
 export async function readTimeline(page: Page): Promise<Timeline> {
-  const blocks = await timelineBlocks(page);
+  let blocks = await timelineBlocks(page);
+  for (let i = 0; i < 10 && blocks.length === 0; i++) {
+    await sleep(1500);
+    blocks = await timelineBlocks(page);
+  }
   const total = (await totalDurationSeconds(page)) ?? 0;
   const generating = blocks.some((b) => PENDING_RE.test(b.text));
   const widthSum = blocks.reduce((s, b) => s + b.w, 0);
@@ -296,10 +301,14 @@ export async function sendExtend(ctx: AppContext, page: Page): Promise<void> {
   await sleep(3000);
 }
 
+// The rendering placeholder carries no text, so "done" is: the timeline has a new last block whose media id (read by
+// selecting it) is not a pre-existing id and downloads as video/*. The extension is also usually listed as new project
+// media, so ids new to the media strip are tried as well. Works after a restart, when the tab that sent the prompt
+// is long gone.
 export async function awaitExtension(
   ctx: AppContext,
   page: Page,
-  before: Timeline,
+  clipsBefore: number,
   baselineIds: Set<string>,
   outputDir: string,
   jobId: string,
@@ -307,11 +316,10 @@ export async function awaitExtension(
   const started = Date.now();
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   const bodyBefore = await bodyText(page);
-  let timeline = await readTimeline(page);
+  let first = true;
   while (Date.now() - started < ctx.config.generationTimeoutMs) {
-    await sleep(ctx.config.pollIntervalMs);
-    timeline = await readTimeline(page);
-    if (!timeline.generating && timeline.clips.length > before.clips.length) break;
+    if (!first) await sleep(ctx.config.pollIntervalMs);
+    first = false;
     const fresh = await bodyText(page);
     if (fresh.length > bodyBefore.length && label('policyBlocked').test(fresh.slice(bodyBefore.length - 200))) {
       throw new FlowError(
@@ -321,36 +329,31 @@ export async function awaitExtension(
         await takeScreenshot(page, shots, 'scene-extend-policy'),
       );
     }
+    const candidates = new Set<string>();
+    const blocks = await timelineBlocks(page);
+    if (blocks.length > clipsBefore) {
+      const selected = await clipMediaId(page, blocks.length - 1);
+      if (selected && !baselineIds.has(selected)) candidates.add(selected);
+    }
+    for (const id of await mediaIds(page)) if (!baselineIds.has(id)) candidates.add(id);
+    for (const id of candidates) {
+      const attempt = await tryDownload(ctx.session.getContext(), id, outputDir, fileNameFor(id, jobId), 'video');
+      if (attempt.outcome === 'ok') {
+        return {
+          timeline: await readTimeline(page),
+          media_id: id,
+          file: attempt.file,
+          elapsed_ms: Date.now() - started,
+        };
+      }
+    }
   }
-  if (timeline.generating || timeline.clips.length <= before.clips.length) {
-    throw new FlowError(
-      'GENERATION_TIMEOUT',
-      `extension did not finish within ${Math.round(ctx.config.generationTimeoutMs / 1000)}s`,
-      { clips_before: before.clips.length, clips_after: timeline.clips.length },
-      await takeScreenshot(page, shots, 'scene-extend-timeout'),
-    );
-  }
-  await sleep(2000);
-  // The new clip is selected when it lands; its poster in the right panel carries the media id
-  let mediaId = await selectedMediaId(page);
-  if (!mediaId || baselineIds.has(mediaId)) mediaId = await clipMediaId(page, timeline.clips.length - 1);
-  if (!mediaId || baselineIds.has(mediaId)) {
-    const grid = await mediaIds(page);
-    mediaId = grid.find((id) => !baselineIds.has(id));
-  }
-  let file: Downloaded | undefined;
-  if (mediaId) {
-    const attempt = await tryDownload(
-      ctx.session.getContext(),
-      mediaId,
-      outputDir,
-      fileNameFor(mediaId, jobId),
-      'video',
-    );
-    if (attempt.outcome === 'ok') file = attempt.file;
-    else ctx.log.warn('extension media download failed', { media_id: mediaId, attempt });
-  }
-  return { timeline, media_id: mediaId, file, elapsed_ms: Date.now() - started };
+  throw new FlowError(
+    'GENERATION_TIMEOUT',
+    `extension did not finish within ${Math.round(ctx.config.generationTimeoutMs / 1000)}s`,
+    { clips_before: clipsBefore },
+    await takeScreenshot(page, shots, 'scene-extend-timeout'),
+  );
 }
 
 export async function openScene(ctx: AppContext, sceneUrl: string): Promise<Page> {

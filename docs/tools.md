@@ -285,7 +285,7 @@ Annotations: `idempotentHint`, `openWorldHint`
 
 ## flow_scene_extend
 
-Scene Builder "Extend": generates a 7-second continuation of the clip at after_clip_index (must be the last clip) with Veo 3.1 - Lite and downloads it as a separate media file. Spends credits when auto_confirm=true; auto_confirm=false opens the extend prompt, fills it, takes a screenshot and cancels. Idempotent: if a clip already exists at after_clip_index+1 it is downloaded instead of generating again. resume=true only waits for / downloads a running extension.
+Scene Builder "Extend": generates a 7-second continuation of the clip at after_clip_index (must be the last clip) with Veo 3.1 - Lite and downloads it as a separate media file. Spends credits when auto_confirm=true; auto_confirm=false opens the extend prompt, fills it, takes a screenshot and cancels. Safe to retry: if the extension was already generated (clip present at after_clip_index+1, or resume=true after a crash) it is downloaded instead of generated again.
 
 Annotations: `destructiveHint`, `idempotentHint`, `openWorldHint`
 

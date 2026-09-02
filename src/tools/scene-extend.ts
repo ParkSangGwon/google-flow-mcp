@@ -1,11 +1,12 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { takeScreenshot } from '../browser/screenshot.js';
-import { FlowError } from '../lib/errors.js';
+import type { Job } from '../flow/jobs.js';
 import { fileNameFor, mediaIds, tryDownload } from '../flow/media.js';
 import {
   EXTEND_HOP_SECONDS,
   EXTEND_MODEL_LABEL,
+  type Timeline,
   awaitExtension,
   cancelExtend,
   clipMediaId,
@@ -14,6 +15,7 @@ import {
   sendExtend,
   startExtend,
 } from '../flow/scene.js';
+import { FlowError } from '../lib/errors.js';
 import { defineTool } from '../server/tool.js';
 import { sceneClip } from './scene-add.js';
 
@@ -23,8 +25,8 @@ export const sceneExtend = defineTool({
   description:
     `Scene Builder "Extend": generates a ${EXTEND_HOP_SECONDS}-second continuation of the clip at after_clip_index (must be the last clip) ` +
     `with ${EXTEND_MODEL_LABEL} and downloads it as a separate media file. Spends credits when auto_confirm=true; ` +
-    'auto_confirm=false opens the extend prompt, fills it, takes a screenshot and cancels. Idempotent: if a clip already exists ' +
-    'at after_clip_index+1 it is downloaded instead of generating again. resume=true only waits for / downloads a running extension.',
+    'auto_confirm=false opens the extend prompt, fills it, takes a screenshot and cancels. Safe to retry: if the extension ' +
+    'was already generated (clip present at after_clip_index+1, or resume=true after a crash) it is downloaded instead of generated again.',
   input: {
     scene_url: z.url(),
     prompt: z.string().min(1).describe('What happens next; Flow continues motion and audio from the last frames'),
@@ -56,76 +58,86 @@ export const sceneExtend = defineTool({
     const before = await readTimeline(page);
     const expected = args.after_clip_index + 1;
     const base = { scene_url: page.url(), model: EXTEND_MODEL_LABEL, hop_seconds: EXTEND_HOP_SECONDS };
+    const finish = (
+      status: 'completed' | 'already_exists',
+      jobId: string,
+      timeline: Timeline,
+      mediaId: string | undefined,
+      file: string | undefined,
+    ) => ({
+      status,
+      job_id: jobId,
+      clip_index: expected,
+      ...(mediaId ? { media_id: mediaId } : {}),
+      ...(file ? { file } : {}),
+      clips: timeline.clips,
+      total_duration_s: timeline.total_duration_s,
+      elapsed_ms: Date.now() - started,
+      ...base,
+    });
 
     if (args.after_clip_index >= before.clips.length) {
       throw new FlowError(
         'CLIP_NOT_FOUND',
         `scene has ${before.clips.length} clip(s); no clip at index ${args.after_clip_index}`,
-        {
-          clips: before.clips,
-        },
+        { clips: before.clips },
       );
     }
 
-    // A clip already sitting at the expected index means an earlier call (or a crashed one) succeeded: reuse it
-    if (before.clips.length > expected || (before.clips.length === expected && !before.generating && args.resume)) {
-      const mediaId = await clipMediaId(page, expected);
-      let file: string | undefined;
-      if (mediaId) {
-        const attempt = await tryDownload(
-          ctx.session.getContext(),
-          mediaId,
-          args.output_dir,
-          fileNameFor(mediaId, args.job_id ?? 'scene'),
-          'video',
+    const job: Job | undefined = args.job_id
+      ? ctx.jobs.get(args.job_id)
+      : ctx.jobs.findLatest(
+          (j) => j.kind === 'scene_extend' && j.scene_url === args.scene_url && j.expected_clip_index === expected,
         );
-        if (attempt.outcome === 'ok') file = attempt.file.path;
-      }
-      return {
-        status: 'already_exists' as const,
-        job_id: args.job_id ?? '',
-        clip_index: expected,
-        ...(mediaId ? { media_id: mediaId } : {}),
-        ...(file ? { file } : {}),
-        clips: before.clips,
-        total_duration_s: before.total_duration_s,
-        elapsed_ms: Date.now() - started,
-        ...base,
-      };
-    }
 
-    if (args.resume) {
-      const job = args.job_id
-        ? ctx.jobs.get(args.job_id)
-        : ctx.jobs.findLatest((j) => j.kind === 'scene_extend' && j.scene_url === args.scene_url);
-      if (!job || !before.generating) {
-        throw new FlowError('GENERATION_TIMEOUT', 'no running extension to resume in this scene', {
-          reason: 'no_job',
-          generating: before.generating,
-        });
+    // Resume, or a timeline that already holds the expected clip: the job's media baseline identifies the extension
+    if (args.resume || before.clips.length > expected) {
+      if (job && job.phase !== 'failed') {
+        const out = await awaitExtension(
+          ctx,
+          page,
+          expected,
+          new Set(job.baseline_media_ids),
+          args.output_dir,
+          job.job_id,
+        );
+        const result = finish(
+          args.resume ? 'completed' : 'already_exists',
+          job.job_id,
+          out.timeline,
+          out.media_id,
+          out.file?.path,
+        );
+        ctx.jobs.update(job.job_id, { phase: 'done', result });
+        return result;
       }
-      const seed = { ...before, clips: before.clips.slice(0, expected) };
-      const out = await awaitExtension(ctx, page, seed, new Set(job.baseline_media_ids), args.output_dir, job.job_id);
-      const result = {
-        status: 'completed' as const,
-        job_id: job.job_id,
-        clip_index: expected,
-        ...(out.media_id ? { media_id: out.media_id } : {}),
-        ...(out.file ? { file: out.file.path } : {}),
-        clips: out.timeline.clips,
-        total_duration_s: out.timeline.total_duration_s,
-        elapsed_ms: Date.now() - started,
-        ...base,
-      };
-      ctx.jobs.update(job.job_id, { phase: 'done', result });
-      return result;
+      if (before.clips.length > expected) {
+        // Extended outside this tool: the clip's own media id (a scene-side copy) still downloads the same content
+        const mediaId = await clipMediaId(page, expected);
+        let file: string | undefined;
+        if (mediaId) {
+          const attempt = await tryDownload(
+            ctx.session.getContext(),
+            mediaId,
+            args.output_dir,
+            fileNameFor(mediaId, 'scene'),
+            'video',
+          );
+          if (attempt.outcome === 'ok') file = attempt.file.path;
+        }
+        return finish('already_exists', '', before, mediaId, file);
+      }
+      throw new FlowError('GENERATION_TIMEOUT', 'no extension job to resume for this scene/clip', {
+        reason: 'no_job',
+        expected_clip_index: expected,
+      });
     }
 
     if (args.after_clip_index !== before.clips.length - 1) {
       throw new FlowError('CLIP_NOT_FOUND', 'only the last clip can be extended', { clips: before.clips });
     }
     if (before.generating) {
-      throw new FlowError('BUSY', 'an extension is still rendering in this scene; call again with resume=true', {});
+      throw new FlowError('BUSY', 'the extend prompt is already open in this scene; finish or cancel it first', {});
     }
 
     await startExtend(ctx, page, args.prompt);
@@ -145,7 +157,7 @@ export const sceneExtend = defineTool({
     }
 
     const baseline = await mediaIds(page);
-    const job = ctx.jobs.create({
+    const created = ctx.jobs.create({
       kind: 'scene_extend',
       phase: 'sending',
       project_url: args.scene_url.replace(/\/scenes?\/.*$/, ''),
@@ -157,20 +169,10 @@ export const sceneExtend = defineTool({
       expected_clip_index: expected,
     });
     await sendExtend(ctx, page);
-    ctx.jobs.update(job.job_id, { phase: 'sent' });
-    const out = await awaitExtension(ctx, page, before, new Set(baseline), args.output_dir, job.job_id);
-    const result = {
-      status: 'completed' as const,
-      job_id: job.job_id,
-      clip_index: expected,
-      ...(out.media_id ? { media_id: out.media_id } : {}),
-      ...(out.file ? { file: out.file.path } : {}),
-      clips: out.timeline.clips,
-      total_duration_s: out.timeline.total_duration_s,
-      elapsed_ms: Date.now() - started,
-      ...base,
-    };
-    ctx.jobs.update(job.job_id, { phase: 'done', result });
+    ctx.jobs.update(created.job_id, { phase: 'sent' });
+    const out = await awaitExtension(ctx, page, expected, new Set(baseline), args.output_dir, created.job_id);
+    const result = finish('completed', created.job_id, out.timeline, out.media_id, out.file?.path);
+    ctx.jobs.update(created.job_id, { phase: 'done', result });
     return result;
   },
 });
