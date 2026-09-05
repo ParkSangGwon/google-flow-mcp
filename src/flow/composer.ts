@@ -72,9 +72,14 @@ export async function generateMedia(ctx: AppContext, args: GenerateArgs): Promis
   await applyDefaults(ctx, page, args.kind, args.ratio, modelName, args.count);
   await ensureComposer(ctx, page, args.editMode);
 
+  // Attachments are counted, not diffed: each one has to raise the composer's thumbnail count past what the
+  // previous references already put there. Anything already in the composer is the origin, so a stale thumbnail
+  // cannot make a reference look attached.
+  const origin = (await composerMedia(page)).length;
   let attached = 0;
   for (const ref of args.referenceImages) {
-    if ((await attachReference(ctx, page, ref)) || (await attachReference(ctx, page, ref))) attached++;
+    const want = origin + attached + 1;
+    if ((await attachReference(ctx, page, ref, want)) || (await attachReference(ctx, page, ref, want))) attached++;
   }
   // Sending without the reference makes the agent pick an arbitrary project image as the first frame: stop before credits
   if (args.referenceImages.length > 0 && attached < args.referenceImages.length) {
@@ -372,11 +377,13 @@ async function applyDefaults(
 }
 
 // attach button → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
-async function attachReference(ctx: AppContext, page: Page, filePath: string): Promise<boolean> {
+async function attachReference(ctx: AppContext, page: Page, filePath: string, expected: number): Promise<boolean> {
   if (!fs.existsSync(filePath)) {
     throw new FlowError('REFERENCE_NOT_ATTACHED', `reference image not found: ${filePath}`, { path: filePath });
   }
   const shots = path.join(ctx.config.stateDir, 'screenshots');
+  // The retry after a false negative: the file did land, so uploading it again would only duplicate it
+  if ((await composerMedia(page)).length >= expected) return true;
   // A previous failed attempt can leave the attach menu open; its overlay then swallows the click
   // and the button reports aria-expanded="true" forever (observed 2026-09-05).
   const attach = namedButton(page, 'attachToPrompt').first();
@@ -404,13 +411,12 @@ async function attachReference(ctx: AppContext, page: Page, filePath: string): P
   const t0 = Date.now();
   while (Date.now() - t0 < 15_000) {
     await sleep(1000);
-    // 붙었는지는 "새 URL이 생겼는가"가 아니라 "컴포저에 참조가 있는가"로 본다. 같은 파일을 재시도로
-    // 다시 올리면 Flow가 같은 URL을 돌려주고 이전 시도의 썸네일도 남아 있어 차집합이 빈다 — 그래서
-    // 실제로는 붙어 있는데 REFERENCE_NOT_ATTACHED로 폐기됐다(byblos-book 2026-09-05, 스크린샷에
-    // 썸네일이 찍혀 있는데도 미첨부 판정). 첨부가 정말 실패하면 컴포저가 비므로 0으로 잡힌다.
-    if ((await composerMedia(page)).length > 0) {
+    // Landing is judged by the thumbnail count, not by a new URL appearing: re-uploading the same file makes
+    // Flow hand back the URL it already used, so the set difference stayed empty and a reference that was
+    // plainly attached (byblos-book 2026-09-05: the screenshot shows the thumbnail) was thrown away.
+    if ((await composerMedia(page)).length >= expected) {
       if ((await page.locator('[role="dialog"]').count()) > 0) await pressEscape(page, 500);
-      if ((await composerMedia(page)).length > 0) return true;
+      if ((await composerMedia(page)).length >= expected) return true;
     }
   }
   await takeScreenshot(page, shots, 'ref-not-attached');
