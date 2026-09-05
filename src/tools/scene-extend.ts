@@ -2,14 +2,14 @@ import path from 'node:path';
 import { z } from 'zod';
 import { takeScreenshot } from '../browser/screenshot.js';
 import type { Job } from '../flow/jobs.js';
-import { fileNameFor, mediaIds, tryDownload } from '../flow/media.js';
+import { tryDownload } from '../flow/media.js';
 import {
   EXTEND_HOP_SECONDS,
   EXTEND_MODEL_LABEL,
   type Timeline,
   awaitExtension,
   cancelExtend,
-  clipMediaId,
+  clipMediaUrl,
   openScene,
   readTimeline,
   sendExtend,
@@ -93,14 +93,7 @@ export const sceneExtend = defineTool({
     // Resume, or a timeline that already holds the expected clip: the job's media baseline identifies the extension
     if (args.resume || before.clips.length > expected) {
       if (job && job.phase !== 'failed') {
-        const out = await awaitExtension(
-          ctx,
-          page,
-          expected,
-          new Set(job.baseline_media_ids),
-          args.output_dir,
-          job.job_id,
-        );
+        const out = await awaitExtension(ctx, page, expected, args.output_dir, job.job_id);
         const result = finish(
           args.resume ? 'completed' : 'already_exists',
           job.job_id,
@@ -112,18 +105,22 @@ export const sceneExtend = defineTool({
         return result;
       }
       if (before.clips.length > expected) {
-        // Extended outside this tool: the clip's own media id (a scene-side copy) still downloads the same content
-        const mediaId = await clipMediaId(page, expected);
+        // Extended outside this tool: the clip's own address (a scene-side copy) downloads the same content
+        const url = await clipMediaUrl(page, expected);
+        let mediaId: string | undefined;
         let file: string | undefined;
-        if (mediaId) {
+        if (url) {
           const attempt = await tryDownload(
             ctx.session.getContext(),
-            mediaId,
-            args.output_dir,
-            fileNameFor(mediaId, 'scene'),
+            `${url}=mm,22,15`,
             'video',
+            args.output_dir,
+            'scene',
           );
-          if (attempt.outcome === 'ok') file = attempt.file.path;
+          if (attempt.outcome === 'ok') {
+            mediaId = attempt.file.media_id;
+            file = attempt.file.path;
+          }
         }
         return finish('already_exists', '', before, mediaId, file);
       }
@@ -156,7 +153,6 @@ export const sceneExtend = defineTool({
       };
     }
 
-    const baseline = await mediaIds(page);
     const created = ctx.jobs.create({
       kind: 'scene_extend',
       phase: 'sending',
@@ -165,12 +161,12 @@ export const sceneExtend = defineTool({
       output_dir: args.output_dir,
       prompt: args.prompt,
       model: EXTEND_MODEL_LABEL,
-      baseline_media_ids: baseline,
+      baseline_tiles: before.clips.length,
       expected_clip_index: expected,
     });
     await sendExtend(ctx, page);
     ctx.jobs.update(created.job_id, { phase: 'sent' });
-    const out = await awaitExtension(ctx, page, expected, new Set(baseline), args.output_dir, created.job_id);
+    const out = await awaitExtension(ctx, page, expected, args.output_dir, created.job_id);
     const result = finish('completed', created.job_id, out.timeline, out.media_id, out.file?.path);
     ctx.jobs.update(created.job_id, { phase: 'done', result });
     return result;

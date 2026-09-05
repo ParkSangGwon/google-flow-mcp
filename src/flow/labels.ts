@@ -18,7 +18,8 @@ export const LABELS = {
   policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content'],
   // Scene Builder (Korean strings observed live 2026-09-02, see docs/scene-builder.md)
   sceneAdd: ['장면에 추가', 'Add to [Ss]cene'],
-  sceneNew: ['장면 만들기', '새 장면', 'Create scene', 'New scene'],
+  // Flow renamed 장면 만들기 → 새로운 장면 in the tile menu (2026-09-05)
+  sceneNew: ['새로운 장면', '장면 만들기', '새 장면', 'Create scene', 'New scene'],
   sceneAddClip: ['클립 추가', 'Add clip'],
   sceneExtend: ['확장', 'Extend'],
 } as const;
@@ -28,7 +29,7 @@ export type LabelKey = keyof typeof LABELS;
 // Material icon ligatures that appear in button innerText (language independent)
 export const ICON = {
   send: 'arrow_forward',
-  add: 'add',                 // renamed from add_2 by Flow, 2026-09-05
+  add: 'add', // renamed from add_2 by Flow, 2026-09-05
   settings: 'tune',
   newSession: 'edit_square',
   more: 'more_vert',

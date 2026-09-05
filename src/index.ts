@@ -12,5 +12,5 @@ export {
 export { ConfigSchema, defaultConfig, loadConfig, configPath, type Config } from './config.js';
 export type { AppContext } from './context.js';
 export { VIDEO_MODELS, IMAGE_MODELS, LABELS, ICON } from './flow/labels.js';
-export { MEDIA_RE, mediaUrl } from './flow/media.js';
+export { MEDIA_RE, contentKey, mediaUrl } from './flow/media.js';
 export { parseFlowUrl } from './flow/project.js';

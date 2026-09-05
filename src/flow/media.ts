@@ -1,16 +1,36 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BrowserContext, Page } from 'playwright-core';
 import { FlowError } from '../lib/errors.js';
 
-// Every generated or uploaded asset is served through this redirect endpoint; the uuid is the media id
-export const MEDIA_RE = /media\.getMediaUrlRedirect\?name=([a-f0-9-]{20,})/;
+// Flow serves grid media from flow.google.com/asb/<token> (2026-09-05; it used to be a media uuid on
+// media.getMediaUrlRedirect). The token is an address, not an identity: it is re-signed from time to time,
+// and only image tiles still carry the uuid, so nothing here keys media by token.
+export const MEDIA_RE = /flow\.google\.com\/asb\/([A-Za-z0-9_-]{20,})/;
 
-export function mediaUrl(id: string): string {
-  return `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=${id}`;
+// The uuid address survives re-signing and still serves both kinds; it is what flow_media_download takes.
+export function mediaUrl(uuid: string): string {
+  return `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=${uuid}`;
 }
 
 export type MediaKind = 'video' | 'image';
+
+// URL option that selects the original: itag 22 is the 720p h264 Flow itself offers as "original size",
+// s0 the unscaled image. A bare token returns a small poster jpeg for both kinds.
+const ORIGINAL: Record<MediaKind, string> = { video: 'mm,22,15', image: 's0' };
+
+export interface MediaTile {
+  index: number; // grid position, newest first
+  kind: MediaKind;
+  title: string; // the tile's accessible name: the prompt summary, or the file name for uploads
+  url: string; // flow.google.com/asb/<token>, without the option suffix
+  uuid?: string; // Flow's own media id — image tiles still carry it, video tiles no longer do
+}
+
+export function tileUrl(tile: MediaTile): string {
+  return `${tile.url}=${ORIGINAL[tile.kind]}`;
+}
 
 const EXT: Record<string, string> = {
   'video/mp4': 'mp4',
@@ -21,24 +41,33 @@ const EXT: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-export async function mediaIds(page: Page): Promise<string[]> {
+// The project grid, newest first. A video tile shows a poster <img> until it is hovered, when a <video>
+// takes over; only the tile element says which kind it is.
+export async function mediaTiles(page: Page): Promise<MediaTile[]> {
   return page
     .evaluate((source) => {
       const re = new RegExp(source);
-      const ids = new Set<string>();
-      for (const el of document.querySelectorAll('img, video, source, a')) {
-        const src =
-          (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || (el as HTMLAnchorElement).href || '';
-        const m = re.exec(src);
-        if (m?.[1]) ids.add(m[1]);
+      const out: { index: number; kind: 'video' | 'image'; title: string; url: string; uuid?: string }[] = [];
+      for (const tile of document.querySelectorAll('flow-video-tile, flow-image-tile')) {
+        const el = tile.querySelector('img, video');
+        const m = re.exec((el as HTMLImageElement | null)?.currentSrc || (el as HTMLImageElement | null)?.src || '');
+        if (!m?.[1]) continue;
+        const uuid = el?.getAttribute('data-media-id');
+        out.push({
+          index: out.length,
+          kind: tile.tagName === 'FLOW-VIDEO-TILE' ? 'video' : 'image',
+          title: tile.closest('flow-grid-tile-container')?.getAttribute('aria-label') ?? '',
+          url: `https://flow.google.com/asb/${m[1]}`,
+          ...(uuid ? { uuid } : {}),
+        });
       }
-      return [...ids];
+      return out;
     }, MEDIA_RE.source)
-    .catch(() => []);
+    .catch((): MediaTile[] => []);
 }
 
 export interface MediaElement {
-  id: string;
+  url: string;
   tag: string;
   x: number;
   y: number;
@@ -55,50 +84,44 @@ export interface TileRect {
   height: number;
 }
 
-// The smallest laid-out ancestor of a media element (its grid tile), scrolled into view. Grid <video>
-// elements are lazy (preload=none) and count as invisible to Playwright, so tiles are targeted by geometry.
-export async function mediaTileCentre(page: Page, idPrefix: string): Promise<TileRect | null> {
+// A tile's rectangle, scrolled into view. Grid <video> elements are lazy and count as invisible to
+// Playwright, so tiles are clicked by geometry.
+export async function mediaTileCentre(page: Page, url: string): Promise<TileRect | null> {
   return page
-    .evaluate((prefix) => {
-      // Poster <img> first: a detached preview <video> may carry the id without belonging to any tile
-      const el =
-        document.querySelector(`img[src*="name=${prefix}"]`) ?? document.querySelector(`video[src*="name=${prefix}"]`);
-      if (!el) return null;
-      let node: Element | null = el;
-      while (node && (node.getBoundingClientRect().width < 40 || node.getBoundingClientRect().height < 40)) {
-        node = node.parentElement;
-      }
-      if (!node) return null;
-      const r0 = node.getBoundingClientRect();
-      if (r0.width > 600 || r0.height > 700) return null; // bigger than a tile: not a grid tile
-      node.scrollIntoView({ block: 'center' });
-      const r = node.getBoundingClientRect();
-      return {
-        x: Math.round(r.x + r.width / 2),
-        y: Math.round(r.y + r.height / 2),
-        left: Math.round(r.x),
-        top: Math.round(r.y),
-        width: Math.round(r.width),
-        height: Math.round(r.height),
-      };
-    }, idPrefix)
+    .evaluate(
+      (src) => {
+        const el = document.querySelector(`img[src*="${src}"], video[src*="${src}"]`);
+        const tile = el?.closest('flow-grid-tile-container');
+        if (!tile) return null;
+        tile.scrollIntoView({ block: 'center' });
+        const r = tile.getBoundingClientRect();
+        return {
+          x: Math.round(r.x + r.width / 2),
+          y: Math.round(r.y + r.height / 2),
+          left: Math.round(r.x),
+          top: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        };
+      },
+      url.replace('https://flow.google.com/asb/', ''),
+    )
     .catch(() => null);
 }
 
-// Every laid-out element that references a media id, with its position (used to map ids to tiles/timeline clips)
+// Every laid-out element serving Flow media, with its position — used to find the scene view's clip poster,
+// which is not a grid tile.
 export async function mediaElements(page: Page): Promise<MediaElement[]> {
   return page
     .evaluate((source) => {
       const re = new RegExp(source);
       const out: MediaElement[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>('img, video, source')) {
-        const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
-        const m = re.exec(src);
+      for (const el of document.querySelectorAll<HTMLElement>('img, video')) {
+        const m = re.exec((el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '');
         if (!m?.[1]) continue;
-        const box = (el.tagName === 'SOURCE' ? el.parentElement : el)?.getBoundingClientRect();
-        if (!box) continue;
+        const box = el.getBoundingClientRect();
         out.push({
-          id: m[1],
+          url: `https://flow.google.com/asb/${m[1]}`,
           tag: el.tagName,
           x: Math.round(box.x),
           y: Math.round(box.y),
@@ -118,59 +141,68 @@ export interface Downloaded {
   media_id: string;
 }
 
-export type DownloadAttempt =
-  | { outcome: 'ok'; file: Downloaded }
-  | { outcome: 'wrong_kind'; content_type: string }
-  | { outcome: 'retry'; reason: string };
+export type DownloadAttempt = { outcome: 'ok'; file: Downloaded } | { outcome: 'retry'; reason: string };
 
-// GET through the browser context so the user's Flow cookies authorize the redirect
+// Media ids are a digest of the file itself: Flow's tile addresses are re-signed over time and its uuids are
+// not exposed for videos, so the bytes are the only identity that survives a reload or a restart.
+export function contentKey(body: Buffer): string {
+  return crypto.createHash('sha1').update(body).digest('hex').slice(0, 8);
+}
+
+export function fileNameFor(id: string, suffix: string): string {
+  return `flow_${id}_${suffix}`;
+}
+
+// GET through the browser context so the user's Flow cookies authorize the request
 export async function tryDownload(
   context: BrowserContext,
-  id: string,
+  url: string,
+  kind: MediaKind,
   outDir: string,
-  filename: string,
-  kind: MediaKind | 'any',
+  suffix: string,
 ): Promise<DownloadAttempt> {
   try {
-    const res = await context.request.get(mediaUrl(id), { maxRedirects: 10, timeout: 120_000 });
+    const res = await context.request.get(url, { maxRedirects: 10, timeout: 120_000 });
     const contentType = res.headers()['content-type'] ?? '';
     if (!res.ok()) return { outcome: 'retry', reason: `HTTP ${res.status()}` };
-    if (kind !== 'any' && !contentType.startsWith(`${kind}/`))
-      return { outcome: 'wrong_kind', content_type: contentType };
-    const body = await res.body();
-    fs.mkdirSync(outDir, { recursive: true });
-    const ext = EXT[contentType.split(';')[0] ?? ''] ?? (contentType.startsWith('video/') ? 'mp4' : 'bin');
-    const file = path.join(outDir, filename.endsWith(`.${ext}`) ? filename : `${filename}.${ext}`);
-    fs.writeFileSync(file, body);
-    return { outcome: 'ok', file: { path: file, content_type: contentType, bytes: body.length, media_id: id } };
+    if (!contentType.startsWith(`${kind}/`)) return { outcome: 'retry', reason: `content-type ${contentType}` };
+    return { outcome: 'ok', file: save(await res.body(), contentType, kind, outDir, suffix) };
   } catch (err) {
     return { outcome: 'retry', reason: err instanceof Error ? err.message : String(err) };
   }
 }
 
-export async function downloadMedia(
+function save(body: Buffer, contentType: string, kind: MediaKind, outDir: string, suffix: string): Downloaded {
+  const id = contentKey(body);
+  fs.mkdirSync(outDir, { recursive: true });
+  const ext = EXT[contentType.split(';')[0] ?? ''] ?? (kind === 'video' ? 'mp4' : 'bin');
+  const file = path.join(outDir, `${fileNameFor(id, suffix)}.${ext}`);
+  fs.writeFileSync(file, body);
+  return { path: file, content_type: contentType, bytes: body.length, media_id: id };
+}
+
+// flow_media_download's entry point: a uuid address, whose kind is only known once the bytes arrive
+export async function downloadByUuid(
   context: BrowserContext,
-  id: string,
+  uuid: string,
   outDir: string,
-  filename: string,
-  kind: MediaKind | 'any' = 'any',
+  suffix: string,
 ): Promise<Downloaded> {
-  const attempt = await tryDownload(context, id, outDir, filename, kind);
-  if (attempt.outcome === 'ok') return attempt.file;
-  if (attempt.outcome === 'wrong_kind') {
-    throw new FlowError('DOWNLOAD_FAILED', `media ${id} is ${attempt.content_type}, expected ${kind}/*`, {
-      media_id: id,
-      content_type: attempt.content_type,
+  const res = await context.request.get(mediaUrl(uuid), { maxRedirects: 10, timeout: 120_000 });
+  const contentType = res.headers()['content-type'] ?? '';
+  if (!res.ok()) {
+    throw new FlowError('DOWNLOAD_FAILED', `media ${uuid} download failed: HTTP ${res.status()}`, { media_id: uuid });
+  }
+  if (!contentType.startsWith('video/') && !contentType.startsWith('image/')) {
+    throw new FlowError('DOWNLOAD_FAILED', `media ${uuid} is ${contentType}, not video or image`, {
+      media_id: uuid,
+      content_type: contentType,
     });
   }
-  throw new FlowError('DOWNLOAD_FAILED', `media ${id} download failed: ${attempt.reason}`, { media_id: id });
+  return save(await res.body(), contentType, contentType.startsWith('video/') ? 'video' : 'image', outDir, suffix);
 }
 
-export function fileNameFor(id: string, suffix: string): string {
-  return `flow_${id.slice(0, 8)}_${suffix}`;
-}
-
-// Ids already on disk (from an earlier attempt) must not be mistaken for a new output
+// Ids already on disk (from an earlier attempt) must not be downloaded a second time
 export function downloadedPrefixes(outDir: string): Set<string> {
   if (!fs.existsSync(outDir)) return new Set();
   const out = new Set<string>();

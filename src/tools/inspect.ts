@@ -3,7 +3,7 @@ import type { Locator, Page, Response } from 'playwright-core';
 import { z } from 'zod';
 import { takeScreenshot } from '../browser/screenshot.js';
 import { diffRows, findText, rowKey, snapshot } from '../flow/inspect.js';
-import { mediaElements, mediaTileCentre } from '../flow/media.js';
+import { mediaTileCentre, mediaTiles } from '../flow/media.js';
 import { sleep } from '../flow/ui.js';
 import { FlowError } from '../lib/errors.js';
 import { defineTool } from '../server/tool.js';
@@ -39,7 +39,7 @@ export const inspect = defineTool({
       .string()
       .optional()
       .describe(
-        'Regex matched against button/menu item text and aria-label (for click/hover), or "media:<id-prefix>" to target a media tile',
+        'Regex matched against button/menu item text and aria-label (for click/hover), or "media:<tile title>" to target a media tile',
       ),
     at: z
       .tuple([z.number(), z.number()])
@@ -49,7 +49,7 @@ export const inspect = defineTool({
     url: z.url().optional().describe('URL for action=goto'),
     find: z.string().optional().describe('Regex over visible text nodes; matches are returned with their position'),
     region: z.enum(REGIONS).default('all').describe('Restrict rows to a viewport region'),
-    media: z.boolean().default(false).describe('Also list img/video elements that reference a Flow media id'),
+    media: z.boolean().default(false).describe('Also list the project grid tiles (index, kind, title)'),
     watch_network: z
       .boolean()
       .default(false)
@@ -104,7 +104,9 @@ export const inspect = defineTool({
         if (!args.target) throw new FlowError('UI_NOT_FOUND', `action=${args.action} needs target or at`);
         if (args.target.startsWith('media:')) {
           // Grid <video> elements are lazy (preload=none, not "visible" to Playwright): act on the tile's centre instead
-          const centre = await mediaTileCentre(page, args.target.slice(6));
+          const ref = args.target.slice(6);
+          const tile = (await mediaTiles(page)).find((t) => t.title === ref || t.url.endsWith(ref));
+          const centre = tile ? await mediaTileCentre(page, tile.url) : null;
           if (!centre) {
             throw new FlowError('UI_NOT_FOUND', `no media tile for ${args.target}`, {
               rows: before.slice(0, 50).map(rowKey),
@@ -152,9 +154,7 @@ export const inspect = defineTool({
       );
     }
     if (args.media) {
-      result.media = (await mediaElements(page)).map(
-        (m) => `${m.id.slice(0, 8)}|${m.tag}|@${m.x},${m.y} ${m.w}x${m.h}`,
-      );
+      result.media = (await mediaTiles(page)).map((t) => `${t.index}|${t.kind}|${t.title}`);
     }
     if (args.screenshot) {
       const file = await takeScreenshot(page, path.join(ctx.config.stateDir, 'screenshots'), `inspect-${args.action}`);

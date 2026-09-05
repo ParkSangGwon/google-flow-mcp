@@ -44,7 +44,7 @@ flowchart LR
         P["이 서버가 소유한 탭 하나"]
     end
 
-    G["☁️ Google Flow<br/>labs.google · Veo 3.1 · Omni · Nano Banana"]
+    G["☁️ Google Flow<br/>flow.google.com · Veo 3.1 · Omni · Nano Banana"]
 
     C <-->|"MCP over stdio"| T
     T --> F
@@ -171,7 +171,7 @@ npx -y @park-sang-gwon/google-flow-mcp doctor
 
 어시스턴트에게 Flow 프로젝트를 열고 **크레딧 없이** 영상을 준비하게 해 보세요.
 
-> "https://labs.google/fx/tools/flow/project/… 를 `flow_project_open`으로 열고, `auto_confirm: false`로 `flow_generate_video`를 불러 … 의 8초 9:16 클립을 준비해 줘"
+> "https://flow.google.com/project/… 를 `flow_project_open`으로 열고, `auto_confirm: false`로 `flow_generate_video`를 불러 … 의 8초 9:16 클립을 준비해 줘"
 
 `status: "ready_for_confirmation"`과 스크린샷 경로가 옵니다. "진행해"라고 하면 에이전트가 `auto_confirm: true`로 같은 호출을 반복합니다.
 
@@ -192,14 +192,14 @@ sequenceDiagram
     alt auto_confirm = false
         S-->>A: status: ready_for_confirmation + 스크린샷 (0크레딧)
     else auto_confirm = true
-        S->>S: 잡 기록(미디어 id 기준선) 저장
+        S->>S: 잡 기록(타일 수 기준선) 저장
         S->>B: 전송(Enter) → 승인 카드 / 정책 거절 처리
         B->>F: 생성
         loop 6초마다, 최대 30분
-            S->>B: 새 미디어 id?
+            S->>B: 타일 수가 기준선보다 늘었나?
         end
         F-->>B: 클립 완성
-        S->>B: 인증된 GET media.getMediaUrlRedirect
+        S->>B: 인증된 GET flow.google.com/asb/&lt;token&gt;
         S-->>A: status: completed, files[], media_ids[], job_id
     end
 ```
@@ -270,7 +270,7 @@ ffmpeg -i seed.mp4 -i hop1.mp4 -i hop2.mp4 -filter_complex "[0:v][0:a][1:v][1:a]
 
 ```jsonc
 // 성공
-{ "ok": true, "status": "completed", "files": ["/abs/out/flow_ab12cd34_job.mp4"], "media_ids": ["ab12cd34-…"], "job_id": "mtk0…" }
+{ "ok": true, "status": "completed", "files": ["/abs/out/flow_ab12cd34_job.mp4"], "media_ids": ["ab12cd34"], "job_id": "mtk0…" }
 // 실패 (isError: true) — 예외로 던지지 않고 항상 구조화
 { "ok": false, "code": "REFERENCE_NOT_ATTACHED", "message": "0/1 reference images attached; nothing was sent", "recoverable": false, "details": {}, "screenshot": "/…/reference-not-attached.png" }
 ```

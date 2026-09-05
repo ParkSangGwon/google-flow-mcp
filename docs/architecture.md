@@ -47,8 +47,12 @@ Flow ships no test ids. Buttons carry a Material icon ligature plus a label in `
 `download다운로드` — no space between icon and label in `textContent`). Matchers are regexes built from
 `flow/labels.ts` with Korean|English alternation, scoped by role (`button`, `[role=menuitem]`, `[role=textbox]`) and,
 where the same text occurs several times, by viewport geometry (right-hand chat panel, bottom-right composer, the
-timeline band). Media tiles are found by their poster `<img src*="getMediaUrlRedirect?name=<id>">`; the grid's
-`<video>` elements are lazy, zero-sized previews.
+timeline band). Media tiles are `<flow-video-tile>` / `<flow-image-tile>` elements holding one
+`flow.google.com/asb/<token>` URL; the tile element is the only thing that says whether it is a video or an
+image, and a video tile shows a poster `<img>` until it is hovered. That token is an **address, not an id**:
+Flow re-signs it over time and only image tiles still carry a media uuid (`data-media-id`). So media are
+identified by a digest of the downloaded file, and a generation's outputs are recognised by position — the
+grid is newest-first, and whatever grew the count of tiles of that kind is what the job produced.
 
 `flow_inspect` is the discovery tool: it snapshots interactive elements, performs one action and returns the diff,
 optional text matches, media element positions and network responses. Every "not found" error carries the rows it
@@ -60,12 +64,14 @@ saw so a label change is a one-line fix in `labels.ts`.
    new chat session (so the agent does not reuse an earlier attachment as first frame).
 2. Settings popover (`tune`): "Confirm before generating" = 안 함/Never, then ratio, count and model in the image
    section (first) or video section (last) — the popover lists image controls above video controls.
-3. Attach each reference: `add_2` → 미디어 업로드 → file chooser → click the uploaded item in the picker → verify a new
+3. Attach each reference: 프롬프트 상자에 소재 추가 → 미디어 업로드 → file chooser → click the uploaded item in the picker → verify a new
    thumbnail in the bottom-right composer box. Missing attachment = `REFERENCE_NOT_ATTACHED`, nothing sent.
 4. Fill the instruction. Dry run returns here.
 5. Write a job record (baseline of media ids), send (Enter, fallback click, retried while an upload is still
    processing), watch for an approval card or "generating" text, re-baseline once the grid is stable, then poll for
-   new media ids that download as the requested kind and save them as `flow_<id8>_<job>.<ext>`.
+   the tiles of the requested kind that the count grew by, and save them as `flow_<id>_<job>.<ext>` where the
+   id is an 8-char digest of the file. Re-downloading a clip yields the same name, so a resumed job neither
+   duplicates nor loses it.
 
 `resume: true` skips 1–4, loads the job (by id, or the latest for the same project and output dir) and only
 polls/downloads — the path taken after a crash, a timeout, or when a client asks twice.

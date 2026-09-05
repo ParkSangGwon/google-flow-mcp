@@ -31,7 +31,7 @@ export function defaultConfig(): Config {
     userDataDir: path.join(os.homedir(), '.google-flow-chrome'),
     profileDirectory: 'Default',
     cdpPort: 9333,
-    flowUrl: 'https://labs.google/fx/tools/flow',
+    flowUrl: 'https://flow.google.com',
     stateDir: path.join(os.homedir(), '.google-flow-mcp'),
     generationTimeoutMs: 1_800_000,
     pollIntervalMs: 6_000,

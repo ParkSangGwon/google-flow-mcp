@@ -6,15 +6,15 @@ import { FlowError } from '../lib/errors.js';
 import { label } from './labels.js';
 import {
   type Downloaded,
+  type MediaTile,
   type TileRect,
-  fileNameFor,
   mediaElements,
-  mediaIds,
   mediaTileCentre,
+  mediaTiles,
   tryDownload,
 } from './media.js';
 import { ensureOnProject, ensureOnScene, parseFlowUrl } from './project.js';
-import { bodyText, isVisible, pressEscape, sleep } from './ui.js';
+import { bodyText, isVisible, pressEscape, sleep, waitStable } from './ui.js';
 
 // Scene Builder (observed 2026-09): a project media tile's "⋮" menu has "장면에 추가 → 장면 만들기" which creates a
 // scene card in the grid; opening it lands on /project/<id>/scene/<id>. The scene view shows a timeline of clip
@@ -27,7 +27,6 @@ export const EXTEND_MODEL_LABEL = 'Veo 3.1 - Lite';
 export interface SceneClip {
   index: number;
   duration_s: number;
-  media_id?: string;
 }
 
 export interface Timeline {
@@ -107,23 +106,35 @@ export async function readTimeline(page: Page): Promise<Timeline> {
   };
 }
 
-// The right-hand panel shows the selected clip's poster (a tall thumbnail) whose src carries the media id.
-// Note: a clip added to a scene gets its own media id (a copy of the source), so this is the scene's id, not
-// the id of the tile it was created from; both download the same content.
-async function selectedMediaId(page: Page): Promise<string | undefined> {
+// The right-hand panel shows the selected clip's poster (a tall thumbnail); its src downloads that clip.
+// A clip added to a scene is a copy of the source tile with its own address, but the same content.
+async function selectedClipUrl(page: Page): Promise<string | undefined> {
   const els = await mediaElements(page);
   const vw = await page.evaluate(() => window.innerWidth).catch(() => 1920);
   const poster = els.filter((m) => m.x > vw * 0.75 && m.h >= 120 && m.w >= 60).sort((a, b) => b.h - a.h)[0];
-  return poster?.id;
+  return poster?.url;
 }
 
-export async function clipMediaId(page: Page, index: number): Promise<string | undefined> {
+export async function clipMediaUrl(page: Page, index: number): Promise<string | undefined> {
   const blocks = await timelineBlocks(page);
   const block = blocks[index];
   if (!block) return undefined;
   await page.mouse.click(block.x + Math.min(40, block.w / 2), block.y + block.h / 2);
   await sleep(800);
-  return selectedMediaId(page);
+  return selectedClipUrl(page);
+}
+
+// Grid tiles have no stable id of their own, so a media id (the digest of a file this server downloaded)
+// is resolved through the job record that produced it: it remembers the title Flow gave the tile.
+function findVideoTile(ctx: AppContext, tiles: MediaTile[], ref: string): MediaTile | undefined {
+  const videos = tiles.filter((t) => t.kind === 'video');
+  const byTitle = videos.find((t) => t.title === ref);
+  if (byTitle) return byTitle;
+  const title = ctx.jobs
+    .list()
+    .flatMap((j) => j.outputs ?? [])
+    .find((o) => o.media_id === ref)?.title;
+  return title ? videos.find((t) => t.title === title) : undefined;
 }
 
 export interface SceneRef {
@@ -142,9 +153,16 @@ export async function createSceneFromMedia(ctx: AppContext, projectUrl: string, 
   const page = await ctx.session.ensureConnected();
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   await ensureOnProject(page, projectUrl, ctx.log);
-  const centre = await mediaTileCentre(page, mediaId);
+  // Video tiles render a few seconds after the image ones; looking the id up too early reports it missing
+  await waitStable(async () => (await mediaTiles(page)).length);
+  const tiles = await mediaTiles(page);
+  const tile = findVideoTile(ctx, tiles, mediaId);
+  const centre = tile ? await mediaTileCentre(page, tile.url) : null;
   if (!centre) {
-    throw new FlowError('CLIP_NOT_FOUND', `media ${mediaId} is not in the project grid`, { media_id: mediaId });
+    throw new FlowError('CLIP_NOT_FOUND', `media ${mediaId} is not in the project grid`, {
+      media_id: mediaId,
+      video_titles: tiles.filter((t) => t.kind === 'video').map((t) => t.title),
+    });
   }
   await page.mouse.move(centre.x, centre.y);
   await sleep(800);
@@ -187,8 +205,12 @@ export async function createSceneFromMedia(ctx: AppContext, projectUrl: string, 
   }
   await createItem.click();
   await sleep(3000);
-  // The new scene becomes the first card of the grid (movie icon); opening it yields the scene URL
-  const card = page.locator('[role="button"]').filter({ hasText: /movie/ }).first();
+  // The new scene becomes the first card of the grid; opening it yields the scene URL. Scene cards are
+  // <flow-scene-tile>s and, unlike the rest of the grid, carry no role and no media id of their own.
+  const card = page
+    .locator('flow-grid-tile-container')
+    .filter({ has: page.locator('flow-scene-tile') })
+    .first();
   if (!(await isVisible(card))) {
     throw new FlowError(
       'SCENE_NOT_FOUND',
@@ -199,7 +221,7 @@ export async function createSceneFromMedia(ctx: AppContext, projectUrl: string, 
   }
   await card.click();
   try {
-    await page.waitForURL(/\/scenes?\/[0-9a-f-]{36}/, { timeout: 20_000 });
+    await page.waitForURL(/\/scenes?\/[0-9a-fA-F-]{36}/, { timeout: 20_000 });
   } catch {
     throw new FlowError(
       'SCENE_NOT_FOUND',
@@ -320,7 +342,6 @@ export async function awaitExtension(
   ctx: AppContext,
   page: Page,
   clipsBefore: number,
-  baselineIds: Set<string>,
   outputDir: string,
   jobId: string,
 ): Promise<ExtendOutcome> {
@@ -340,23 +361,18 @@ export async function awaitExtension(
         await takeScreenshot(page, shots, 'scene-extend-policy'),
       );
     }
-    const candidates = new Set<string>();
     const blocks = await timelineBlocks(page);
-    if (blocks.length > clipsBefore) {
-      const selected = await clipMediaId(page, blocks.length - 1);
-      if (selected && !baselineIds.has(selected)) candidates.add(selected);
-    }
-    for (const id of await mediaIds(page)) if (!baselineIds.has(id)) candidates.add(id);
-    for (const id of candidates) {
-      const attempt = await tryDownload(ctx.session.getContext(), id, outputDir, fileNameFor(id, jobId), 'video');
-      if (attempt.outcome === 'ok') {
-        return {
-          timeline: await readTimeline(page),
-          media_id: id,
-          file: attempt.file,
-          elapsed_ms: Date.now() - started,
-        };
-      }
+    if (blocks.length <= clipsBefore) continue;
+    const url = await clipMediaUrl(page, blocks.length - 1);
+    if (!url) continue;
+    const attempt = await tryDownload(ctx.session.getContext(), `${url}=mm,22,15`, 'video', outputDir, jobId);
+    if (attempt.outcome === 'ok') {
+      return {
+        timeline: await readTimeline(page),
+        media_id: attempt.file.media_id,
+        file: attempt.file,
+        elapsed_ms: Date.now() - started,
+      };
     }
   }
   throw new FlowError(

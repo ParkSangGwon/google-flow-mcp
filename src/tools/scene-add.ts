@@ -5,7 +5,6 @@ import { defineTool } from '../server/tool.js';
 export const sceneClip = z.object({
   index: z.number(),
   duration_s: z.number(),
-  media_id: z.string().optional(),
 });
 
 export const sceneAdd = defineTool({
@@ -16,7 +15,10 @@ export const sceneAdd = defineTool({
     'Returns the scene URL to pass to flow_scene_extend / flow_scene_status / flow_scene_download. Costs no credits.',
   input: {
     project_url: z.url(),
-    media_id: z.string().min(8).describe('Media id (or 8+ char prefix) of a video already in the project grid'),
+    media_id: z
+      .string()
+      .min(8)
+      .describe('The 8-char media id of a clip this server downloaded, or the tile title Flow shows for it'),
   },
   output: {
     scene_url: z.string(),

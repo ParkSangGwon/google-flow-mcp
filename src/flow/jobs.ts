@@ -16,7 +16,11 @@ export interface Job {
   output_dir: string;
   prompt: string;
   model: string;
-  baseline_media_ids: string[];
+  // How many tiles of the job's kind the grid held before sending: Flow's tile addresses are re-signed over
+  // time, so the outputs are recognised by the count growing, not by an id appearing
+  baseline_tiles: number;
+  // Media id (a digest of the file) and the tile title Flow gave it, so a later tool can find the tile again
+  outputs?: { media_id: string; title: string }[];
   expected_clip_index?: number;
   result?: Record<string, unknown>;
   error?: string;
