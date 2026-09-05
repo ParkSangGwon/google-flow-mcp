@@ -69,7 +69,7 @@ export async function generateMedia(ctx: AppContext, args: GenerateArgs): Promis
   if (args.resume) return resumeGeneration(ctx, page, args, started);
 
   await ensureComposer(ctx, page, args.editMode);
-  await applyDefaults(ctx, page, args.kind, args.ratio, modelName, args.count);
+  await applyDefaults(ctx, page, args.projectUrl, args.kind, args.ratio, modelName, args.count);
   await ensureComposer(ctx, page, args.editMode);
 
   // Attachments are counted, not diffed: each one has to raise the composer's thumbnail count past what the
@@ -121,6 +121,10 @@ export async function generateMedia(ctx: AppContext, args: GenerateArgs): Promis
     };
   }
 
+  // The baseline has to describe the grid as it was before sending, and the grid is still rendering right
+  // after navigation — so wait for a stable count, then take it once. Re-reading it later would swallow a
+  // fast generation into the baseline and leave the job waiting for an output it already had.
+  await waitStable(async () => (await mediaTiles(page)).length);
   const job = ctx.jobs.create({
     kind: args.kind,
     phase: 'sending',
@@ -143,12 +147,7 @@ export async function generateMedia(ctx: AppContext, args: GenerateArgs): Promis
     APPROVAL_TIMEOUT_MS,
     true,
   );
-  // The grid is still loading right after navigation; only a stable count is a trustworthy baseline
-  await waitStable(async () => (await mediaTiles(page)).length);
-  const baseline = await tileCount(page, args.kind);
-  ctx.jobs.update(job.job_id, { baseline_tiles: baseline });
-
-  const files = await awaitOutputs(ctx, page, args, job.job_id, baseline, bodyBefore, shots);
+  const files = await awaitOutputs(ctx, page, args, job.job_id, job.baseline_tiles, bodyBefore, shots);
   ctx.jobs.update(job.job_id, { outputs: files.map((f) => ({ media_id: f.media_id, title: f.title })) });
   const result: GenerateResult = {
     status: 'completed',
@@ -334,13 +333,14 @@ const appliedDefaults = new Map<string, string>();
 async function applyDefaults(
   ctx: AppContext,
   page: Page,
+  projectUrl: string,
   kind: MediaKind,
   ratio: string,
   modelName: string,
   count: number,
 ): Promise<void> {
-  const key = `${kind}|${ratio}|${modelName}|${count}`;
-  if (appliedDefaults.get(kind) === key) return;
+  const key = `${projectUrl}|${kind}|${ratio}|${modelName}|${count}`;
+  if (appliedDefaults.get(`${projectUrl}|${kind}`) === key) return;
   const pick = (loc: Locator): Locator => (kind === 'video' ? loc.last() : loc.first());
   await iconButton(page, 'settings').first().click({ timeout: 10_000 });
   await page.getByText(label('agentSettings')).first().waitFor({ timeout: 10_000 });
@@ -372,7 +372,7 @@ async function applyDefaults(
   await takeScreenshot(page, path.join(ctx.config.stateDir, 'screenshots'), `${kind}-defaults`);
   await labelButton(page, 'save', 'exact').first().click();
   await sleep(800);
-  appliedDefaults.set(kind, key);
+  appliedDefaults.set(`${projectUrl}|${kind}`, key);
   ctx.log.info('agent defaults applied', { kind, ratio, model: modelName, count });
 }
 
