@@ -17,7 +17,7 @@ npx tsx scripts/call.ts flow_generate_video '{"prompt":"...","project_url":"..."
 
 # several steps in one server process (the tab is kept between steps)
 npx tsx scripts/call.ts '[
-  {"tool":"flow_project_open","args":{"project_url":"https://labs.google/fx/ko/tools/flow/project/<id>"}},
+  {"tool":"flow_project_open","args":{"project_url":"https://flow.google.com/project/<id>"}},
   {"tool":"flow_inspect","args":{"action":"hover","target":"media:87e6a012","region":"left"}},
   {"tool":"flow_inspect","args":{"action":"click","at":[1193,104],"find":"장면|Scene","screenshot":true}}
 ]'

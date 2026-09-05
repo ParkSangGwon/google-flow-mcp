@@ -5,19 +5,24 @@ server automates. Labels are Korean first, English second; both are matched.
 
 ## The UI
 
-1. **Entering**: in a project, hover a video tile → `⋮` (`more_vert 더 생성하기`) → `split_scene 장면에 추가` (Add to
-   Scene) → submenu `장면 만들기 add` (Create scene). Existing scenes would be listed in the same submenu.
+1. **Entering**: in a project, hover a video tile → `⋮` (`more_vert 옵션 더보기`) → `play_movies 장면에 추가` (Add to
+   Scene) → submenu `add 새로운 장면` (New scene). Existing scenes would be listed in the same submenu.
 2. A **scene card** (`movie` icon, title "Untitled Scene MM-DD HH:MM:SS") appears at the top of the project grid.
-   Opening it navigates to `https://labs.google/fx/<locale>/tools/flow/project/<projectId>/scene/<sceneId>`
+   Opening it navigates to `https://flow.google.com/project/<projectId>/scene/<sceneId>`
    (singular `scene`; the old `/scenes/` form is also accepted by this server).
 3. **Scene view**: top bar (`arrow_back 프로젝트로 돌아가기`, editable title, `favorite`, `download 다운로드`, `delete`,
    `history 기록 숨기기`, `⋮`, `완료`), a media strip of the project's media (newest first), the preview player with
    `mm:ss:ff` current/total labels, a timeline at the bottom, and a bottom prompt box (`수정 사항 설명`, Omni 1.1
    Flash) that edits the selected clip.
 4. **Timeline**: one `role=button` block per clip, width proportional to duration (100 px per second at default
-   zoom, 62 px tall). Selecting a block shows that clip's poster in the right panel; the poster's `src` carries the
-   clip's media id. A clip added to a scene gets its **own media id** (a copy of the source tile): scene 1's first
-   clip was `742ac8ac…` although it was created from tile `87e6a012…`. Both download the same content.
+   zoom, 62 px tall). Selecting a block shows that clip's poster in the right panel; the poster's `src` is the
+   address this server downloads the clip from. A clip added to a scene is its own copy of the source tile with
+   its own address, but the same content — and so the same media id, which is a digest of the file.
+
+   > The 2026-09-05 rebuild replaced this timeline with `<flow-scene-timeline>`, whose clip blocks are no longer
+   > `role=button` elements. Reading a scene's clips is therefore broken until those selectors are redone;
+   > `flow_scene_add` (creating the scene) works.
+
 5. **`+` after the last clip** (`add 클립 추가`, 28×28) opens a menu with `add 클립 추가` (asset picker: project
    dropdown, tabs 모두/동영상/업로드, search, `장면에 추가` confirm) and `keyboard_double_arrow_right 확장(Veo 3.1 - Lite)`.
    The model is fixed in the label; there is no picker and **no "Jump to"** entry in this build.
@@ -31,7 +36,7 @@ server automates. Labels are Korean first, English second; both are matched.
 | Fact                                  | Value                                                                                                                                                                                                    |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Extension length                      | 7.0 s file; the timeline draws it as 8 s (total 4 s seed → 12 s)                                                                                                                                         |
-| Extension file                        | 720×1280 (9:16 seed), H.264 + audio, separate media id                                                                                                                                                   |
+| Extension file                        | 720×1280 (9:16 seed), H.264 + audio, its own file and media id                                                                                                                                           |
 | Seam                                  | NCC 0.995 between the seed's last frame and the extension's first frame; no overlap                                                                                                                      |
 | Model / cost                          | Veo 3.1 - Lite, 5 credits per hop (Ultra)                                                                                                                                                                |
 | Seed requirements                     | A 4 s Veo 3.1 Fast/Lite clip extended fine; official docs say Veo 3.1 8 s clips are extendable                                                                                                           |

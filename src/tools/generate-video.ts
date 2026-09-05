@@ -7,7 +7,7 @@ export const generateOutput = {
   status: z.enum(['ready_for_confirmation', 'completed']),
   job_id: z.string().describe('Pass back with resume=true to pick up this generation after a restart'),
   files: z.array(z.string()).describe('Absolute paths of downloaded outputs'),
-  media_ids: z.array(z.string()),
+  media_ids: z.array(z.string()).describe('One per file: the 8-char digest that names it'),
   references_attached: z.number(),
   approval_text: z.string().describe('Text of the approval card if one was shown (contains the credit cost)'),
   model: z.string(),

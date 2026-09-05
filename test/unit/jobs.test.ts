@@ -11,16 +11,16 @@ describe('JobStore', () => {
     const job = store.create({
       kind: 'video',
       phase: 'sending',
-      project_url: 'https://labs.google/fx/tools/flow/project/x',
+      project_url: 'https://flow.google.com/project/x',
       output_dir: '/tmp/out',
       prompt: 'p',
       model: 'Veo 3.1 - Fast',
-      baseline_media_ids: ['a'],
+      baseline_tiles: 1,
     });
-    store.update(job.job_id, { phase: 'sent', baseline_media_ids: ['a', 'b'] });
+    store.update(job.job_id, { phase: 'sent', baseline_tiles: 2 });
     const again = new JobStore(dir);
     expect(again.inFlight().map((j) => j.job_id)).toEqual([job.job_id]);
-    expect(again.get(job.job_id)?.baseline_media_ids).toEqual(['a', 'b']);
+    expect(again.get(job.job_id)?.baseline_tiles).toBe(2);
     again.update(job.job_id, { phase: 'done', result: { files: [] } });
     expect(again.inFlight()).toEqual([]);
     expect(again.findLatest((j) => j.output_dir === '/tmp/out')?.phase).toBe('done');

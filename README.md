@@ -44,7 +44,7 @@ flowchart LR
         P["one tab owned by this server"]
     end
 
-    G["☁️ Google Flow<br/>labs.google · Veo 3.1 · Omni · Nano Banana"]
+    G["☁️ Google Flow<br/>flow.google.com · Veo 3.1 · Omni · Nano Banana"]
 
     C <-->|"MCP over stdio"| T
     T --> F
@@ -171,7 +171,7 @@ The first run launches a dedicated Chrome (`~/.google-flow-chrome`). Sign in to 
 
 Ask your assistant to open a Flow project and prepare a video **without spending credits**:
 
-> "Call `flow_project_open` on https://labs.google/fx/tools/flow/project/… then `flow_generate_video` with `auto_confirm: false` for an 8-second 9:16 clip of …"
+> "Call `flow_project_open` on https://flow.google.com/project/… then `flow_generate_video` with `auto_confirm: false` for an 8-second 9:16 clip of …"
 
 You get `status: "ready_for_confirmation"` and a screenshot path. Say "go ahead" and the agent repeats the call with `auto_confirm: true`.
 
@@ -192,14 +192,14 @@ sequenceDiagram
     alt auto_confirm = false
         S-->>A: status: ready_for_confirmation + screenshot (0 credits)
     else auto_confirm = true
-        S->>S: write job record (baseline of media ids)
+        S->>S: write job record (baseline tile count)
         S->>B: send (Enter) → handle approval card / policy refusal
         B->>F: generate
         loop every 6 s, up to 30 min
-            S->>B: new media ids?
+            S->>B: more tiles than the baseline?
         end
         F-->>B: clip ready
-        S->>B: authenticated GET media.getMediaUrlRedirect
+        S->>B: authenticated GET flow.google.com/asb/<token>
         S-->>A: status: completed, files[], media_ids[], job_id
     end
 ```
@@ -257,7 +257,7 @@ ffmpeg -i seed.mp4 -i hop1.mp4 -i hop2.mp4 -filter_complex "[0:v][0:a][1:v][1:a]
 |                  | `flow_project_open`   | Open a project, list its media ids                                     |    –    |
 | 🎥 Generate      | `flow_generate_video` | Veo 3.1 Lite/Fast/Quality, Omni Flash; keyframe; dry run; resume       |   ✅    |
 |                  | `flow_generate_image` | Nano Banana Pro / 2 / 2 Lite; 1–4 images; references; dry run; resume  |   ✅    |
-| 💾 Media         | `flow_media_download` | Download any media id through the logged-in session                    |    –    |
+| 💾 Media         | `flow_media_download` | Download a media uuid through the logged-in session                    |    –    |
 | 🧩 Scene Builder | `flow_scene_add`      | Create a scene from a clip → `scene_url`                               |    –    |
 |                  | `flow_scene_status`   | Clips, durations, media ids of a scene                                 |    –    |
 |                  | `flow_scene_extend`   | Extend the last clip by 7 s (Veo 3.1 Lite); idempotent; resume         |   ✅    |
@@ -270,7 +270,7 @@ Every tool answers with one JSON text block:
 
 ```jsonc
 // success
-{ "ok": true, "status": "completed", "files": ["/abs/out/flow_ab12cd34_job.mp4"], "media_ids": ["ab12cd34-…"], "job_id": "mtk0…" }
+{ "ok": true, "status": "completed", "files": ["/abs/out/flow_ab12cd34_job.mp4"], "media_ids": ["ab12cd34"], "job_id": "mtk0…" }
 // failure (isError: true) — never thrown, always structured
 { "ok": false, "code": "REFERENCE_NOT_ATTACHED", "message": "0/1 reference images attached; nothing was sent", "recoverable": false, "details": {}, "screenshot": "/…/reference-not-attached.png" }
 ```

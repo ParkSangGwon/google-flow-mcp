@@ -94,13 +94,13 @@ Annotations: `openWorldHint`
 |---|---|---|---|
 | `action` | "none" \| "click" \| "hover" \| "press" \| "type" \| "goto" | yes |  |
 | `text` | string | no | Text to type for action=type (after clicking target/at if given) |
-| `target` | string | no | Regex matched against button/menu item text and aria-label (for click/hover), or "media:<id-prefix>" to target a media tile |
+| `target` | string | no | Regex matched against button/menu item text and aria-label (for click/hover), or "media:<tile title>" to target a media tile |
 | `at` | unknown[] | no | Viewport coordinates [x, y] to click/hover instead of a target (from a previous row @x,y) |
 | `key` | string | no | Key to press for action=press, e.g. Escape |
 | `url` | url | no | URL for action=goto |
 | `find` | string | no | Regex over visible text nodes; matches are returned with their position |
 | `region` | "all" \| "right" \| "bottom-right" \| "left" | yes | Restrict rows to a viewport region |
-| `media` | boolean | yes | Also list img/video elements that reference a Flow media id |
+| `media` | boolean | yes | Also list the project grid tiles (index, kind, title) |
 | `watch_network` | boolean | yes | Record network requests made during the action and settle window (method, status, type, URL) |
 | `screenshot` | boolean | yes |  |
 | `settle_ms` | integer | yes | Wait after the action before the second snapshot |
@@ -129,7 +129,7 @@ Annotations: `idempotentHint`, `openWorldHint`
 
 | name | type | required | description |
 |---|---|---|---|
-| `project_url` | url | yes | https://labs.google/fx/<locale>/tools/flow/project/<uuid> |
+| `project_url` | url | yes | https://flow.google.com/project/<uuid> (the old labs.google link also works) |
 
 ### Output (plus `ok: true`)
 
@@ -138,7 +138,8 @@ Annotations: `idempotentHint`, `openWorldHint`
 | `project_id` | string | yes |  |
 | `url` | string | yes |  |
 | `media_count` | number | yes |  |
-| `media_ids` | string[] | yes | Media ids currently visible in the grid, newest first as rendered |
+| `videos` | number | yes | How many of those tiles are videos |
+| `media` | object[] | yes | Grid tiles, newest first. url is a short-lived address Flow re-signs; uuid feeds flow_media_download |
 
 ## flow_generate_video
 
@@ -169,7 +170,7 @@ Annotations: `destructiveHint`, `openWorldHint`
 | `status` | "ready_for_confirmation" \| "completed" | yes |  |
 | `job_id` | string | yes | Pass back with resume=true to pick up this generation after a restart |
 | `files` | string[] | yes | Absolute paths of downloaded outputs |
-| `media_ids` | string[] | yes |  |
+| `media_ids` | string[] | yes | One per file: the 8-char digest that names it |
 | `references_attached` | number | yes |  |
 | `approval_text` | string | yes | Text of the approval card if one was shown (contains the credit cost) |
 | `model` | string | yes |  |
@@ -207,7 +208,7 @@ Annotations: `destructiveHint`, `openWorldHint`
 | `status` | "ready_for_confirmation" \| "completed" | yes |  |
 | `job_id` | string | yes | Pass back with resume=true to pick up this generation after a restart |
 | `files` | string[] | yes | Absolute paths of downloaded outputs |
-| `media_ids` | string[] | yes |  |
+| `media_ids` | string[] | yes | One per file: the 8-char digest that names it |
 | `references_attached` | number | yes |  |
 | `approval_text` | string | yes | Text of the approval card if one was shown (contains the credit cost) |
 | `model` | string | yes |  |
@@ -219,7 +220,7 @@ Annotations: `destructiveHint`, `openWorldHint`
 
 ## flow_media_download
 
-Download one Flow media item (video or image) by its media id using the logged-in browser session. Ids come from the generation and scene tools or from flow_project_open.
+Download one Flow media item (video or image) by its Flow media uuid using the logged-in browser session. Uuids come from flow_project_open (image tiles expose one; video tiles do not).
 
 Annotations: `idempotentHint`, `openWorldHint`
 
@@ -227,9 +228,9 @@ Annotations: `idempotentHint`, `openWorldHint`
 
 | name | type | required | description |
 |---|---|---|---|
-| `media_id` | string | yes | Media uuid from media.getMediaUrlRedirect?name=<id> |
+| `media_id` | string | yes | Flow media uuid |
 | `output_dir` | string | yes |  |
-| `filename` | string | no | File name without extension; default flow_<id8>_manual |
+| `suffix` | string | yes | Trailing part of the file name: flow_<id>_<suffix>.<ext> |
 
 ### Output (plus `ok: true`)
 
@@ -238,6 +239,7 @@ Annotations: `idempotentHint`, `openWorldHint`
 | `path` | string | yes |  |
 | `content_type` | string | yes |  |
 | `bytes` | number | yes |  |
+| `media_id` | string | yes |  |
 
 ## flow_scene_add
 
@@ -250,7 +252,7 @@ Annotations: `openWorldHint`
 | name | type | required | description |
 |---|---|---|---|
 | `project_url` | url | yes |  |
-| `media_id` | string | yes | Media id (or 8+ char prefix) of a video already in the project grid |
+| `media_id` | string | yes | The 8-char media id of a clip this server downloaded, or the tile title Flow shows for it |
 
 ### Output (plus `ok: true`)
 
@@ -263,7 +265,7 @@ Annotations: `openWorldHint`
 
 ## flow_scene_status
 
-Open a Scene Builder view and report its clips (index, duration) and total length, plus whether an extension is still rendering. with_media_ids selects each clip to read its media id (slower). Costs no credits.
+Open a Scene Builder view and report its clips (index, duration) and total length, plus whether an extension is still rendering. Costs no credits.
 
 Annotations: `idempotentHint`, `openWorldHint`
 
@@ -272,7 +274,6 @@ Annotations: `idempotentHint`, `openWorldHint`
 | name | type | required | description |
 |---|---|---|---|
 | `scene_url` | url | yes |  |
-| `with_media_ids` | boolean | yes |  |
 
 ### Output (plus `ok: true`)
 

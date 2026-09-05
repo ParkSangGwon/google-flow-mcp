@@ -9,11 +9,17 @@ export const LABELS = {
   clearPrompt: ['프롬프트 지우기', 'Clear prompt'],
   newSession: ['새로운 세션', 'New session'],
   uploadMedia: ['미디어 업로드', 'Upload media'],
+  // Composer attach button. Identified by accessible name, not by icon ligature: Flow renamed the
+  // ligature add_2 → add (2026-09-05), and the top bar has its own 'add' button that .first() would win.
+  attachToPrompt: ['프롬프트 상자에 소재 추가', 'prompt box'],
+  // Asset picker confirm button — Flow added this step, selecting the item alone no longer attaches it (2026-09-05)
+  addToPrompt: ['프롬프트에 추가', 'Add to prompt'],
   generating: ['생성 중', '만드는 중', 'Generating', 'generating', 'scheduled', 'queue'],
   policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content'],
   // Scene Builder (Korean strings observed live 2026-09-02, see docs/scene-builder.md)
   sceneAdd: ['장면에 추가', 'Add to [Ss]cene'],
-  sceneNew: ['장면 만들기', '새 장면', 'Create scene', 'New scene'],
+  // Flow renamed 장면 만들기 → 새로운 장면 in the tile menu (2026-09-05)
+  sceneNew: ['새로운 장면', '장면 만들기', '새 장면', 'Create scene', 'New scene'],
   sceneAddClip: ['클립 추가', 'Add clip'],
   sceneExtend: ['확장', 'Extend'],
 } as const;
@@ -23,7 +29,7 @@ export type LabelKey = keyof typeof LABELS;
 // Material icon ligatures that appear in button innerText (language independent)
 export const ICON = {
   send: 'arrow_forward',
-  add: 'add_2',
+  add: 'add', // renamed from add_2 by Flow, 2026-09-05
   settings: 'tune',
   newSession: 'edit_square',
   more: 'more_vert',

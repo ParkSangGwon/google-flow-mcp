@@ -6,9 +6,19 @@ import type { AppContext } from '../context.js';
 import { FlowError } from '../lib/errors.js';
 import type { Job } from './jobs.js';
 import { IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
-import { type MediaKind, downloadedPrefixes, fileNameFor, mediaIds, tryDownload } from './media.js';
+import { type MediaKind, downloadedPrefixes, mediaTiles, tileUrl, tryDownload } from './media.js';
 import { ensureOnProject } from './project.js';
-import { bodyText, firstInRegion, iconButton, isVisible, labelButton, pressEscape, sleep, waitStable } from './ui.js';
+import {
+  bodyText,
+  firstInRegion,
+  iconButton,
+  isVisible,
+  labelButton,
+  namedButton,
+  pressEscape,
+  sleep,
+  waitStable,
+} from './ui.js';
 
 // Flow's agent chat composer (right-hand panel): settings popover (tune), attach menu (add_2), send (arrow_forward),
 // an optional approval card, and the media grid where outputs appear. This module owns that whole flow.
@@ -113,19 +123,28 @@ export async function generateMedia(ctx: AppContext, args: GenerateArgs): Promis
     output_dir: args.outputDir,
     prompt: instruction,
     model: modelName,
-    baseline_media_ids: await mediaIds(page),
+    baseline_tiles: await tileCount(page, args.kind),
   });
   const bodyBefore = await bodyText(page);
   await send(ctx, page, input, shots);
   ctx.jobs.update(job.job_id, { phase: 'sent' });
 
-  const approvalText = await awaitApproval(ctx, page, bodyBefore, job.baseline_media_ids, APPROVAL_TIMEOUT_MS, true);
+  const approvalText = await awaitApproval(
+    ctx,
+    page,
+    bodyBefore,
+    args.kind,
+    job.baseline_tiles,
+    APPROVAL_TIMEOUT_MS,
+    true,
+  );
   // The grid is still loading right after navigation; only a stable count is a trustworthy baseline
-  await waitStable(async () => (await mediaIds(page)).length);
-  const baseline = await mediaIds(page);
-  ctx.jobs.update(job.job_id, { baseline_media_ids: baseline });
+  await waitStable(async () => (await mediaTiles(page)).length);
+  const baseline = await tileCount(page, args.kind);
+  ctx.jobs.update(job.job_id, { baseline_tiles: baseline });
 
-  const files = await awaitOutputs(ctx, page, args, job.job_id, new Set(baseline), bodyBefore, shots);
+  const files = await awaitOutputs(ctx, page, args, job.job_id, baseline, bodyBefore, shots);
+  ctx.jobs.update(job.job_id, { outputs: files.map((f) => ({ media_id: f.media_id, title: f.title })) });
   const result: GenerateResult = {
     status: 'completed',
     job_id: job.job_id,
@@ -172,11 +191,13 @@ async function resumeGeneration(
     ctx,
     page,
     bodyBefore,
-    job.baseline_media_ids,
+    args.kind,
+    job.baseline_tiles,
     RESUME_APPROVAL_TIMEOUT_MS,
     false,
   );
-  const files = await awaitOutputs(ctx, page, args, job.job_id, new Set(job.baseline_media_ids), bodyBefore, shots);
+  const files = await awaitOutputs(ctx, page, args, job.job_id, job.baseline_tiles, bodyBefore, shots);
+  ctx.jobs.update(job.job_id, { outputs: files.map((f) => ({ media_id: f.media_id, title: f.title })) });
   const result: GenerateResult = {
     status: 'completed',
     job_id: job.job_id,
@@ -233,14 +254,17 @@ async function closeSidePanels(page: Page): Promise<void> {
 async function composerMedia(page: Page): Promise<string[]> {
   return page
     .evaluate(() =>
+      // Attached thumbnails sit at the bottom-right of the composer. Match them by position and exclude
+      // Flow's own chrome, rather than whitelisting host names — the CDN for uploads changes (2026-09-05).
       Array.from(document.querySelectorAll('img'))
         .filter((i) => {
           const r = i.getBoundingClientRect();
+          const src = i.currentSrc || i.src;
           return (
             r.width > 24 &&
-            r.y > window.innerHeight * 0.78 &&
-            r.x > window.innerWidth * 0.83 &&
-            /getMediaUrlRedirect|blob:|data:/.test(i.currentSrc || i.src)
+            r.y > window.innerHeight * 0.7 &&
+            r.x > window.innerWidth * 0.75 &&
+            !/zero_states|\/website\/flow\/|\.svg(\?|$)/.test(src)
           );
         })
         .map((i) => i.currentSrc || i.src),
@@ -347,29 +371,37 @@ async function applyDefaults(
   ctx.log.info('agent defaults applied', { kind, ratio, model: modelName, count });
 }
 
-// add_2 → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
+// attach button → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
 async function attachReference(ctx: AppContext, page: Page, filePath: string): Promise<boolean> {
   if (!fs.existsSync(filePath)) {
     throw new FlowError('REFERENCE_NOT_ATTACHED', `reference image not found: ${filePath}`, { path: filePath });
   }
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   const before = new Set(await composerMedia(page));
-  await iconButton(page, 'add').first().click();
+  // A previous failed attempt can leave the attach menu open; its overlay then swallows the click
+  // and the button reports aria-expanded="true" forever (observed 2026-09-05).
+  const attach = namedButton(page, 'attachToPrompt').first();
+  if ((await attach.getAttribute('aria-expanded').catch(() => null)) === 'true') {
+    await pressEscape(page, 500);
+  }
+  await attach.click();
   const upload = labelButton(page, 'uploadMedia').last();
   await upload.waitFor({ timeout: 10_000 });
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 15_000 }), upload.click()]);
   await chooser.setFiles(filePath);
   ctx.log.info('reference file chosen', { filePath });
-  const prefix = path.basename(filePath).slice(0, 12);
-  const item = page.locator('[role="dialog"]').last().getByText(prefix, { exact: false }).first();
+  // Flow 2026-09-05: the upload opens the right-hand asset picker with the new file already selected,
+  // so there is nothing to click in the list — only the '프롬프트에 추가' confirm attaches it to the composer.
+  const confirm = labelButton(page, 'addToPrompt', 'exact').first();
   try {
-    await item.waitFor({ timeout: 60_000 });
+    await confirm.waitFor({ timeout: 60_000 });
   } catch {
     await takeScreenshot(page, shots, 'ref-not-in-picker');
     await pressEscape(page);
     return false;
   }
-  await item.click();
+  await confirm.click();
+  await sleep(800);
   const t0 = Date.now();
   while (Date.now() - t0 < 15_000) {
     await sleep(1000);
@@ -436,11 +468,11 @@ async function awaitApproval(
   ctx: AppContext,
   page: Page,
   bodyBefore: string,
-  baselineIds: readonly string[],
+  kind: MediaKind,
+  baselineTiles: number,
   timeoutMs: number,
   nudgeAllowed: boolean,
 ): Promise<string> {
-  const baseline = new Set(baselineIds);
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   const t0 = Date.now();
   let nudges = 0;
@@ -460,7 +492,7 @@ async function awaitApproval(
       ctx.log.info('generation already running (no approval card)');
       return '';
     }
-    if ((await mediaIds(page)).some((id) => !baseline.has(id))) {
+    if ((await tileCount(page, kind)) > baselineTiles) {
       ctx.log.info('new media tile appeared; generation started');
       return '';
     }
@@ -480,46 +512,51 @@ async function awaitApproval(
   return '';
 }
 
+// Flow's grid is newest-first and its tile addresses are re-signed over time, so outputs are identified by
+// position: whatever grew the count of tiles of this kind since the baseline is what this job produced.
+async function tileCount(page: Page, kind: MediaKind): Promise<number> {
+  return (await mediaTiles(page)).filter((t) => t.kind === kind).length;
+}
+
 async function awaitOutputs(
   ctx: AppContext,
   page: Page,
   args: GenerateArgs,
   jobId: string,
-  baseline: Set<string>,
+  baselineTiles: number,
   bodyBefore: string,
   shots: string,
-): Promise<{ path: string; media_id: string }[]> {
+): Promise<{ path: string; media_id: string; title: string }[]> {
   fs.mkdirSync(args.outputDir, { recursive: true });
   const onDisk = downloadedPrefixes(args.outputDir);
-  const wrongKind = new Set<string>();
-  const files: { path: string; media_id: string }[] = [];
+  const tried = new Set<string>();
+  const files: { path: string; media_id: string; title: string }[] = [];
   const t0 = Date.now();
   let lastShot = 0;
   while (Date.now() - t0 < ctx.config.generationTimeoutMs && files.length < args.count) {
     await sleep(ctx.config.pollIntervalMs);
     await failIfPolicyBlocked(ctx, page, bodyBefore);
-    const ids = (await mediaIds(page)).filter(
-      (id) => !baseline.has(id) && !wrongKind.has(id) && !onDisk.has(id.slice(0, 8)),
-    );
-    if (ids.length > 0) {
+    const tiles = (await mediaTiles(page)).filter((t) => t.kind === args.kind);
+    const fresh = tiles.slice(0, Math.max(0, tiles.length - baselineTiles)).filter((t) => !tried.has(t.url));
+    if (fresh.length > 0) {
       await sleep(3000); // the thumbnail appears before encoding finishes
-      for (const id of ids) {
-        const attempt = await tryDownload(
-          ctx.session.getContext(),
-          id,
-          args.outputDir,
-          fileNameFor(id, jobId),
-          args.kind,
-        );
-        if (attempt.outcome === 'ok') {
-          files.push({ path: attempt.file.path, media_id: id });
-          onDisk.add(id.slice(0, 8));
-          ctx.log.info('output downloaded', { id, path: attempt.file.path, bytes: attempt.file.bytes });
-        } else if (attempt.outcome === 'wrong_kind') {
-          wrongKind.add(id);
-        } else {
-          ctx.log.warn('download retry later', { id, reason: attempt.reason });
+      for (const tile of fresh) {
+        const attempt = await tryDownload(ctx.session.getContext(), tileUrl(tile), args.kind, args.outputDir, jobId);
+        if (attempt.outcome !== 'ok') {
+          ctx.log.warn('download retry later', { title: tile.title, reason: attempt.reason });
+          continue;
         }
+        tried.add(tile.url);
+        const { media_id, path: file, bytes } = attempt.file;
+        // A re-signed address makes the same clip look like a new tile; the digest is what says otherwise
+        if (files.some((f) => f.media_id === media_id)) continue;
+        ctx.log.info(onDisk.has(media_id) ? 'output already downloaded' : 'output downloaded', {
+          id: media_id,
+          path: file,
+          bytes,
+        });
+        onDisk.add(media_id);
+        files.push({ path: file, media_id, title: tile.title });
       }
     }
     const minute = Math.floor((Date.now() - t0) / 60_000);
@@ -532,7 +569,7 @@ async function awaitOutputs(
     throw new FlowError(
       'GENERATION_TIMEOUT',
       `no ${args.kind}/* media appeared within ${Math.round(ctx.config.generationTimeoutMs / 1000)}s`,
-      { non_matching_ids: [...wrongKind] },
+      { baseline_tiles: baselineTiles, tiles_now: await tileCount(page, args.kind) },
       await takeScreenshot(page, shots, 'generation-timeout'),
     );
   }
