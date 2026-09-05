@@ -377,7 +377,6 @@ async function attachReference(ctx: AppContext, page: Page, filePath: string): P
     throw new FlowError('REFERENCE_NOT_ATTACHED', `reference image not found: ${filePath}`, { path: filePath });
   }
   const shots = path.join(ctx.config.stateDir, 'screenshots');
-  const before = new Set(await composerMedia(page));
   // A previous failed attempt can leave the attach menu open; its overlay then swallows the click
   // and the button reports aria-expanded="true" forever (observed 2026-09-05).
   const attach = namedButton(page, 'attachToPrompt').first();
@@ -405,10 +404,13 @@ async function attachReference(ctx: AppContext, page: Page, filePath: string): P
   const t0 = Date.now();
   while (Date.now() - t0 < 15_000) {
     await sleep(1000);
-    const now = await composerMedia(page);
-    if (now.some((src) => !before.has(src))) {
+    // 붙었는지는 "새 URL이 생겼는가"가 아니라 "컴포저에 참조가 있는가"로 본다. 같은 파일을 재시도로
+    // 다시 올리면 Flow가 같은 URL을 돌려주고 이전 시도의 썸네일도 남아 있어 차집합이 빈다 — 그래서
+    // 실제로는 붙어 있는데 REFERENCE_NOT_ATTACHED로 폐기됐다(byblos-book 2026-09-05, 스크린샷에
+    // 썸네일이 찍혀 있는데도 미첨부 판정). 첨부가 정말 실패하면 컴포저가 비므로 0으로 잡힌다.
+    if ((await composerMedia(page)).length > 0) {
       if ((await page.locator('[role="dialog"]').count()) > 0) await pressEscape(page, 500);
-      if ((await composerMedia(page)).some((src) => !before.has(src))) return true;
+      if ((await composerMedia(page)).length > 0) return true;
     }
   }
   await takeScreenshot(page, shots, 'ref-not-attached');
@@ -533,9 +535,18 @@ async function awaitOutputs(
   const files: { path: string; media_id: string; title: string }[] = [];
   const t0 = Date.now();
   let lastShot = 0;
+  let lastReload = Date.now();
   while (Date.now() - t0 < ctx.config.generationTimeoutMs && files.length < args.count) {
     await sleep(ctx.config.pollIntervalMs);
     await failIfPolicyBlocked(ctx, page, bodyBefore);
+    // Flow's SPA does not push finished generations into the grid — polling the DOM alone shows the
+    // baseline count forever, so every job timed out while the videos were in fact ready (byblos-book
+    // 2026-09-05: 6 tiles reported for 30 min while the project grew from 5 to 8). Reload to pull them in.
+    if (Date.now() - lastReload > 60_000) {
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
+      await sleep(4000);
+      lastReload = Date.now();
+    }
     const tiles = (await mediaTiles(page)).filter((t) => t.kind === args.kind);
     const fresh = tiles.slice(0, Math.max(0, tiles.length - baselineTiles)).filter((t) => !tried.has(t.url));
     if (fresh.length > 0) {
