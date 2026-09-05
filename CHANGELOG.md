@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-05
+
+0.2.0 shipped with a generation loop that could never see its own output. This release makes the round trip
+work end to end.
+
+### Fixed
+
+- Generations no longer time out while the clips are ready. Flow's SPA does not push finished media into the
+  project grid, so polling the DOM alone reported the baseline tile count for the full 30 minutes — one project
+  logged 6 tiles for half an hour while it actually grew from 5 videos to 8. The poll loop now reloads the page
+  every 60 s; the same shot went from a 30-minute timeout to a 4-minute download
+- Reference images are no longer discarded as `REFERENCE_NOT_ATTACHED` when they did attach. Re-uploading the
+  same file on a retry makes Flow hand back the same URL, and the previous attempt's thumbnail is still in the
+  composer, so the "any new URL?" test came up empty and threw away a good generation. Attachment is now judged
+  by whether the composer holds a reference at all
+
 ## [0.2.0] - 2026-09-05
 
 Flow's 2026-09-05 rebuild moved media to a new address scheme and renamed part of the UI, which broke every
