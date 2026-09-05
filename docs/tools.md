@@ -115,7 +115,7 @@ Annotations: `openWorldHint`
 | `removed` | string[] | yes |  |
 | `rows` | string[] | yes | All rows in the region after the action (capped at 300) |
 | `matches` | string[] | no |  |
-| `media` | string[] | no | id8\|TAG\|@x,y wxh for each media element |
+| `media` | string[] | no | index\|kind\|title for each grid tile, newest first |
 | `requests` | string[] | no | METHOD status content-type URL (capped at 80) |
 | `screenshot` | string | no |  |
 
