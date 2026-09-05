@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-05
+
+### Fixed
+
+- A second reference image is verified again. 0.3.0 judged an attachment by "does the composer hold a
+  reference", which the first reference already satisfies, so the second one passed before its upload had
+  landed — or when the confirm click had not taken at all. Sending without the reference makes the agent pick
+  an arbitrary project image as the first frame, which is what `REFERENCE_NOT_ATTACHED` exists to prevent.
+  Attachments are now counted: whatever the composer held before is the origin, and the i-th reference has to
+  push the count past it
+- The output baseline is taken once, before sending. It used to be re-read after the approval wait, which is
+  harmless only because Flow's grid does not refresh itself — the moment it does, a fast generation would be
+  absorbed into the baseline and the job would wait out its timeout for an output it already had
+- Agent settings are applied per project. The cache key was the media kind alone, so generating in a second
+  project with the same ratio, model and count skipped the settings and produced at Flow's defaults
+
 ## [0.3.0] - 2026-09-05
 
 0.2.0 shipped with a generation loop that could never see its own output. This release makes the round trip
