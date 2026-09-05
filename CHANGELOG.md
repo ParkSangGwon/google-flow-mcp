@@ -5,6 +5,48 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-05
+
+Flow's 2026-09-05 rebuild moved media to a new address scheme and renamed part of the UI, which broke every
+path that finds or downloads media. This release follows that build.
+
+### Fixed
+
+- Generation outputs are found again. Flow serves media from `flow.google.com/asb/<token>` instead of
+  `media.getMediaUrlRedirect?name=<uuid>`, so the old matcher saw nothing and `flow_generate_video` /
+  `flow_generate_image` timed out after 30 minutes even though the clip had been generated
+- Project URLs on `flow.google.com/project/<uuid>` are recognised (the `labs.google` links Flow redirects from
+  are still accepted as input), so the server no longer re-navigates on every call
+- Reference images attach again: the composer's attach button is matched by its accessible name, and the asset
+  picker's new "add to prompt" confirm step is clicked
+- `flow_scene_add` follows the renamed "New scene" submenu item, the scene card that is no longer a
+  `role=button`, and scene ids that Flow mints in upper case
+
+### Changed
+
+- Media ids are an 8-character digest of the downloaded file. Flow re-signs a tile's address over time and no
+  longer exposes a uuid for video tiles, so the bytes are the only identity that survives a reload or a restart.
+  File names keep the `flow_<id>_<job>.<ext>` shape, and re-downloading a clip neither duplicates nor loses it
+- A generation's outputs are recognised by position: the grid is newest-first, and whatever grew the count of
+  tiles of that kind since the baseline is what the job produced
+- `flow_project_open` returns `media` (index, kind, title, address, and the uuid when Flow still exposes one)
+  and `videos` instead of `media_ids`
+- `flow_media_download` takes a Flow media uuid; it downloads video and image alike
+- `flow_inspect`'s `media` option lists grid tiles (`index|kind|title`) rather than media elements
+- Videos download at their original size (720x1280 h264), the same file Flow's own "original size" menu offers
+
+### Removed
+
+- `flow_scene_status`'s `with_media_ids` and `SceneClip.media_id`: the rebuilt scene view exposes no stable
+  per-clip id
+
+### Known limitations
+
+- The rebuilt scene view's timeline is a `<flow-scene-timeline>` whose clip blocks are no longer `role=button`,
+  so `flow_scene_status` reports no clips and `flow_scene_extend` cannot find one to extend; see
+  `docs/scene-builder.md`
+- Scene "Download" still cannot be captured from an automated tab; download the clips instead
+
 ## [0.1.0] - 2026-09-02
 
 ### Added
