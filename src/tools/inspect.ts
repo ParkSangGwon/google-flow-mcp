@@ -70,7 +70,7 @@ export const inspect = defineTool({
     removed: z.array(z.string()),
     rows: z.array(z.string()).describe('All rows in the region after the action (capped at 300)'),
     matches: z.array(z.string()).optional(),
-    media: z.array(z.string()).optional().describe('id8|TAG|@x,y wxh for each media element'),
+    media: z.array(z.string()).optional().describe('index|kind|title for each grid tile, newest first'),
     requests: z.array(z.string()).optional().describe('METHOD status content-type URL (capped at 80)'),
     screenshot: z.string().optional(),
   },
