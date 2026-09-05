@@ -1,6 +1,6 @@
 {
   "name": "@park-sang-gwon/google-flow-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Unofficial MCP server that drives Google Flow (labs.google Veo / Nano Banana) through your own Chrome session — video & image generation plus Scene Builder (extend, jump to, download)",
   "type": "module",
   "license": "MIT",
