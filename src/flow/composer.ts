@@ -8,7 +8,7 @@ import type { Job } from './jobs.js';
 import { IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
 import { type MediaKind, downloadedPrefixes, fileNameFor, mediaIds, tryDownload } from './media.js';
 import { ensureOnProject } from './project.js';
-import { bodyText, firstInRegion, iconButton, isVisible, labelButton, pressEscape, sleep, waitStable } from './ui.js';
+import { bodyText, firstInRegion, iconButton, isVisible, labelButton, namedButton, pressEscape, sleep, waitStable } from './ui.js';
 
 // Flow's agent chat composer (right-hand panel): settings popover (tune), attach menu (add_2), send (arrow_forward),
 // an optional approval card, and the media grid where outputs appear. This module owns that whole flow.
@@ -233,14 +233,17 @@ async function closeSidePanels(page: Page): Promise<void> {
 async function composerMedia(page: Page): Promise<string[]> {
   return page
     .evaluate(() =>
+      // Attached thumbnails sit at the bottom-right of the composer. Match them by position and exclude
+      // Flow's own chrome, rather than whitelisting host names — the CDN for uploads changes (2026-09-05).
       Array.from(document.querySelectorAll('img'))
         .filter((i) => {
           const r = i.getBoundingClientRect();
+          const src = i.currentSrc || i.src;
           return (
             r.width > 24 &&
-            r.y > window.innerHeight * 0.78 &&
-            r.x > window.innerWidth * 0.83 &&
-            /getMediaUrlRedirect|blob:|data:/.test(i.currentSrc || i.src)
+            r.y > window.innerHeight * 0.7 &&
+            r.x > window.innerWidth * 0.75 &&
+            !/zero_states|\/website\/flow\/|\.svg(\?|$)/.test(src)
           );
         })
         .map((i) => i.currentSrc || i.src),
@@ -347,29 +350,37 @@ async function applyDefaults(
   ctx.log.info('agent defaults applied', { kind, ratio, model: modelName, count });
 }
 
-// add_2 → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
+// attach button → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
 async function attachReference(ctx: AppContext, page: Page, filePath: string): Promise<boolean> {
   if (!fs.existsSync(filePath)) {
     throw new FlowError('REFERENCE_NOT_ATTACHED', `reference image not found: ${filePath}`, { path: filePath });
   }
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   const before = new Set(await composerMedia(page));
-  await iconButton(page, 'add').first().click();
+  // A previous failed attempt can leave the attach menu open; its overlay then swallows the click
+  // and the button reports aria-expanded="true" forever (observed 2026-09-05).
+  const attach = namedButton(page, 'attachToPrompt').first();
+  if ((await attach.getAttribute('aria-expanded').catch(() => null)) === 'true') {
+    await pressEscape(page, 500);
+  }
+  await attach.click();
   const upload = labelButton(page, 'uploadMedia').last();
   await upload.waitFor({ timeout: 10_000 });
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 15_000 }), upload.click()]);
   await chooser.setFiles(filePath);
   ctx.log.info('reference file chosen', { filePath });
-  const prefix = path.basename(filePath).slice(0, 12);
-  const item = page.locator('[role="dialog"]').last().getByText(prefix, { exact: false }).first();
+  // Flow 2026-09-05: the upload opens the right-hand asset picker with the new file already selected,
+  // so there is nothing to click in the list — only the '프롬프트에 추가' confirm attaches it to the composer.
+  const confirm = labelButton(page, 'addToPrompt', 'exact').first();
   try {
-    await item.waitFor({ timeout: 60_000 });
+    await confirm.waitFor({ timeout: 60_000 });
   } catch {
     await takeScreenshot(page, shots, 'ref-not-in-picker');
     await pressEscape(page);
     return false;
   }
-  await item.click();
+  await confirm.click();
+  await sleep(800);
   const t0 = Date.now();
   while (Date.now() - t0 < 15_000) {
     await sleep(1000);

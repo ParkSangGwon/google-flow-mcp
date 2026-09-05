@@ -18,6 +18,11 @@ export function iconButton(page: Page, icon: IconName): Locator {
   return page.locator('button').filter({ hasText: new RegExp(ICON[icon]) });
 }
 
+// Matches a button by its accessible name (aria-label or text) — survives icon ligature renames.
+export function namedButton(page: Page, key: LabelKey, mode: LabelMode = 'contains'): Locator {
+  return page.getByRole('button', { name: label(key, mode) });
+}
+
 export function labelButton(page: Page, key: LabelKey, mode: LabelMode = 'contains'): Locator {
   return page.locator('button').filter({ hasText: label(key, mode) });
 }
