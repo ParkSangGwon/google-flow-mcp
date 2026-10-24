@@ -191,6 +191,13 @@ export async function downloadByUuid(
   const res = await context.request.get(mediaUrl(uuid), { maxRedirects: 10, timeout: 120_000 });
   const contentType = res.headers()['content-type'] ?? '';
   if (!res.ok()) {
+    // Flow (2026-09-05) moved grid media to flow.google.com/asb/<token> and the legacy
+    // media.getMediaUrlRedirect API stopped authorizing (observed 2026-10-24: HTTP 401 for
+    // every uuid). Fall back to the project grid already open in one of the session's tabs:
+    // image tiles still carry their uuid in data-media-id, and the tile URL fetched with the
+    // ORIGINAL option suffix serves the unscaled file.
+    const fallback = await tryDownloadByGridTile(context, uuid, outDir, suffix);
+    if (fallback) return fallback;
     throw new FlowError('DOWNLOAD_FAILED', `media ${uuid} download failed: HTTP ${res.status()}`, { media_id: uuid });
   }
   if (!contentType.startsWith('video/') && !contentType.startsWith('image/')) {
@@ -200,6 +207,30 @@ export async function downloadByUuid(
     });
   }
   return save(await res.body(), contentType, contentType.startsWith('video/') ? 'video' : 'image', outDir, suffix);
+}
+
+// Grid fallback for downloadByUuid: find the tile whose data-media-id matches the uuid and fetch it
+// through the browser context (cookies authorize the token address). Only image tiles still expose
+// their uuid, so a video uuid that is not on a grid tile fails here with an explicit hint.
+async function tryDownloadByGridTile(
+  context: BrowserContext,
+  uuid: string,
+  outDir: string,
+  suffix: string,
+): Promise<Downloaded | null> {
+  for (const page of context.pages()) {
+    const tiles = await mediaTiles(page);
+    const tile = tiles.find((t) => t.uuid === uuid);
+    if (!tile) continue;
+    const attempt = await tryDownload(context, tileUrl(tile), tile.kind, outDir, suffix);
+    if (attempt.outcome === 'ok') return attempt.file;
+    throw new FlowError(
+      'DOWNLOAD_FAILED',
+      `media ${uuid} found on the grid but download failed: ${attempt.reason}`,
+      { media_id: uuid, tile_title: tile.title },
+    );
+  }
+  return null;
 }
 
 // Ids already on disk (from an earlier attempt) must not be downloaded a second time

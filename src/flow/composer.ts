@@ -12,6 +12,7 @@ import {
   bodyText,
   firstInRegion,
   iconButton,
+  settingsTrigger,
   isVisible,
   labelButton,
   namedButton,
@@ -342,7 +343,7 @@ async function applyDefaults(
   const key = `${projectUrl}|${kind}|${ratio}|${modelName}|${count}`;
   if (appliedDefaults.get(`${projectUrl}|${kind}`) === key) return;
   const pick = (loc: Locator): Locator => (kind === 'video' ? loc.last() : loc.first());
-  await iconButton(page, 'settings').first().click({ timeout: 10_000 });
+  await settingsTrigger(page).click({ timeout: 10_000 });
   await page.getByText(label('agentSettings')).first().waitFor({ timeout: 10_000 });
   await sleep(500);
   const never = page.getByText(label('never', 'exact')).first();

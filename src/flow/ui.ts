@@ -18,6 +18,18 @@ export function iconButton(page: Page, icon: IconName): Locator {
   return page.locator('button').filter({ hasText: new RegExp(ICON[icon]) });
 }
 
+// The composer's settings trigger (opens the Agent settings popover). Flow renamed the icon ligature
+// tune → settings_2 and now exposes the chip as aria-label "Settings trigger" (observed 2026-10-24);
+// the app-top settings_2 button ("Settings") also matches a loose settings regex, but that one opens
+// application preferences — so the trigger is matched by its exact aria name, with the old ligature
+// kept as a fallback for older UI revisions.
+export function settingsTrigger(page: Page): Locator {
+  return page
+    .locator('button[aria-label*="Settings trigger" i]')
+    .or(page.locator('button').filter({ hasText: new RegExp(`^\\s*${ICON.settings}\\s*$`) }))
+    .first();
+}
+
 // Matches a button by its accessible name (aria-label or text) — survives icon ligature renames.
 export function namedButton(page: Page, key: LabelKey, mode: LabelMode = 'contains'): Locator {
   return page.getByRole('button', { name: label(key, mode) });
