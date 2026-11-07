@@ -16,6 +16,8 @@ export const LABELS = {
   attachToPrompt: ['프롬프트 상자에 소재 추가', 'prompt box', 'caixa de comando'], // pt-BR seen
   // Asset picker confirm button — Flow added this step, selecting the item alone no longer attaches it (2026-09-05)
   addToPrompt: ['프롬프트에 추가', 'Add to prompt', 'Incluir no comando'], // pt-BR seen
+  // Picker row of a file still being uploaded (pt-BR seen by our gflow driver, 2026-10-22)
+  uploading: ['업로드 중', 'Uploading', 'Enviando', '\\d+%'],
   generating: ['생성 중', '만드는 중', 'Generating', 'generating', 'scheduled', 'queue', 'Gerando', 'gerando', 'Criando', 'na fila'],
   policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content', 'viola(?:m)? (?:as )?(?:nossas )?pol[íi]tica', 'conte[úu]do (?:nocivo|prejudicial)'],
   // Scene Builder (Korean strings observed live 2026-09-02, see docs/scene-builder.md)
