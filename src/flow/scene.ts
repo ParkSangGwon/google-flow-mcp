@@ -272,7 +272,7 @@ export async function startExtend(ctx: AppContext, page: Page, prompt: string): 
   const shots = path.join(ctx.config.stateDir, 'screenshots');
   const plus = page
     .locator('button')
-    .filter({ hasText: /클립 추가|Add clip/ })
+    .filter({ hasText: label('sceneAddClip') })
     .last();
   if (!(await isVisible(plus))) {
     throw new FlowError(

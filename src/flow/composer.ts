@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
@@ -5,7 +6,7 @@ import { takeScreenshot } from '../browser/screenshot.js';
 import type { AppContext } from '../context.js';
 import { FlowError } from '../lib/errors.js';
 import type { Job } from './jobs.js';
-import { IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
+import { ICON, IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
 import { type MediaKind, downloadedPrefixes, mediaTiles, tileUrl, tryDownload } from './media.js';
 import { ensureOnProject } from './project.js';
 import {
@@ -298,7 +299,7 @@ async function clearComposer(ctx: AppContext, page: Page): Promise<void> {
 async function newSession(ctx: AppContext, page: Page): Promise<void> {
   const b = page
     .locator('button')
-    .filter({ hasText: /edit_square|새로운 세션|New session/ })
+    .filter({ hasText: new RegExp(`${ICON.newSession}|${label('newSession').source}`) })
     .first();
   if (await isVisible(b)) {
     await b.click().catch(() => undefined);
@@ -376,6 +377,10 @@ async function applyDefaults(
   ctx.log.info('agent defaults applied', { kind, ratio, model: modelName, count });
 }
 
+// Asset picker overlay (Angular CDK) and how long one reference upload may take
+const OVERLAY = '.cdk-overlay-pane';
+const UPLOAD_WAIT_MS = 90_000;
+
 // attach button → Upload media → file chooser → click the uploaded item in the picker → confirm a new composer thumbnail
 async function attachReference(ctx: AppContext, page: Page, filePath: string, expected: number): Promise<boolean> {
   if (!fs.existsSync(filePath)) {
@@ -394,13 +399,53 @@ async function attachReference(ctx: AppContext, page: Page, filePath: string, ex
   const upload = labelButton(page, 'uploadMedia').last();
   await upload.waitFor({ timeout: 10_000 });
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 15_000 }), upload.click()]);
-  await chooser.setFiles(filePath);
-  ctx.log.info('reference file chosen', { filePath });
-  // Flow 2026-09-05: the upload opens the right-hand asset picker with the new file already selected,
-  // so there is nothing to click in the list — only the '프롬프트에 추가' confirm attaches it to the composer.
+  // Upload under a unique name: Flow dedups a re-sent file and would hand back the old asset, and the
+  // name is how we find THIS upload's row in the picker below.
+  const ext = path.extname(filePath).toLowerCase() || '.png';
+  const stem = `ref-${path.basename(filePath, path.extname(filePath)).slice(0, 40)}-${crypto.randomBytes(3).toString('hex')}`;
+  await chooser.setFiles({
+    name: `${stem}${ext}`,
+    mimeType: ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png',
+    buffer: fs.readFileSync(filePath),
+  });
+  ctx.log.info('reference file chosen', { filePath, uploadedAs: `${stem}${ext}` });
+  // The picker opens at once with the PREVIOUS newest item selected; confirming before this upload has
+  // finished attached that older item instead (observed 2026-11-07: a video got the last generated image
+  // as first frame). Wait for this upload's own row to finish, then select it explicitly.
+  const row = page.locator(`${OVERLAY} [role="option"]`).filter({ hasText: stem }).first();
+  const dialogsBefore = await page.locator('mat-dialog-container').count();
+  const t0Upload = Date.now();
+  let ready = false;
+  while (Date.now() - t0Upload < UPLOAD_WAIT_MS) {
+    await sleep(1500);
+    // First upload of an account opens a usage-rights dialog; accepting it is the account owner's call
+    if ((await page.locator('mat-dialog-container').count()) > dialogsBefore) {
+      throw new FlowError(
+        'REFERENCE_NOT_ATTACHED',
+        'Flow opened a dialog during the upload (likely the one-time media usage-rights notice); accept it once by hand in Flow, then retry',
+        {},
+        await takeScreenshot(page, shots, 'upload-dialog'),
+      );
+    }
+    if ((await composerMedia(page)).length >= expected) return true; // some projects attach on their own
+    if ((await row.count()) === 0) continue;
+    const text = await row.innerText().catch(() => '');
+    if (!label('uploading').test(text)) {
+      ready = true;
+      break;
+    }
+  }
+  if (!ready) {
+    await takeScreenshot(page, shots, 'ref-upload-not-finished');
+    await pressEscape(page);
+    return false;
+  }
+  await row.click();
+  await sleep(1000);
+  if ((await composerMedia(page)).length >= expected) return true; // clicking the row can attach directly
   const confirm = labelButton(page, 'addToPrompt', 'exact').first();
   try {
-    await confirm.waitFor({ timeout: 60_000 });
+    await confirm.waitFor({ timeout: 15_000 });
   } catch {
     await takeScreenshot(page, shots, 'ref-not-in-picker');
     await pressEscape(page);
