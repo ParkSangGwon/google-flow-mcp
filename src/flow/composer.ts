@@ -5,7 +5,7 @@ import { takeScreenshot } from '../browser/screenshot.js';
 import type { AppContext } from '../context.js';
 import { FlowError } from '../lib/errors.js';
 import type { Job } from './jobs.js';
-import { IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
+import { ICON, IMAGE_MODELS, type ModelId, label, modelLabel } from './labels.js';
 import { type MediaKind, downloadedPrefixes, mediaTiles, tileUrl, tryDownload } from './media.js';
 import { ensureOnProject } from './project.js';
 import {
@@ -298,7 +298,7 @@ async function clearComposer(ctx: AppContext, page: Page): Promise<void> {
 async function newSession(ctx: AppContext, page: Page): Promise<void> {
   const b = page
     .locator('button')
-    .filter({ hasText: /edit_square|새로운 세션|New session/ })
+    .filter({ hasText: new RegExp(`${ICON.newSession}|${label('newSession').source}`) })
     .first();
   if (await isVisible(b)) {
     await b.click().catch(() => undefined);

@@ -1,27 +1,29 @@
-// The only module that knows Flow's on-screen strings. Flow renders Korean or English depending on the
-// account, so every label carries both; matchers are built from this table, never inlined elsewhere.
+// The only module that knows Flow's on-screen strings. Flow renders the UI in the Google account's language
+// (Korean, English or Brazilian Portuguese so far), so every label carries all three; matchers are built from
+// this table, never inlined elsewhere. pt-BR strings marked (seen) were read live on 2026-11-07; the rest are
+// Flow's expected wording and still need a live sighting.
 
 export const LABELS = {
-  agentSettings: ['에이전트 설정', 'Agent settings'],
-  approve: ['승인', 'Approve', 'Accept'],
-  never: ['안 함', 'Never'],
-  save: ['저장', 'Save'],
-  clearPrompt: ['프롬프트 지우기', 'Clear prompt'],
-  newSession: ['새로운 세션', 'New session'],
-  uploadMedia: ['미디어 업로드', 'Upload media'],
+  agentSettings: ['에이전트 설정', 'Agent settings', 'Configurações do agente'], // pt-BR seen
+  approve: ['승인', 'Approve', 'Accept', 'Aprovar'], // pt-BR seen
+  never: ['안 함', 'Never', 'Nunca'], // pt-BR seen
+  save: ['저장', 'Save', 'Salvar'], // pt-BR seen
+  clearPrompt: ['프롬프트 지우기', 'Clear prompt', 'Apagar comando'], // pt-BR seen
+  newSession: ['새로운 세션', 'New session', 'Iniciar nova sessão'], // pt-BR seen
+  uploadMedia: ['미디어 업로드', 'Upload media', 'Enviar mídia'], // pt-BR seen
   // Composer attach button. Identified by accessible name, not by icon ligature: Flow renamed the
   // ligature add_2 → add (2026-09-05), and the top bar has its own 'add' button that .first() would win.
-  attachToPrompt: ['프롬프트 상자에 소재 추가', 'prompt box'],
+  attachToPrompt: ['프롬프트 상자에 소재 추가', 'prompt box', 'caixa de comando'], // pt-BR seen
   // Asset picker confirm button — Flow added this step, selecting the item alone no longer attaches it (2026-09-05)
-  addToPrompt: ['프롬프트에 추가', 'Add to prompt'],
-  generating: ['생성 중', '만드는 중', 'Generating', 'generating', 'scheduled', 'queue'],
-  policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content'],
+  addToPrompt: ['프롬프트에 추가', 'Add to prompt', 'Incluir no comando'], // pt-BR seen
+  generating: ['생성 중', '만드는 중', 'Generating', 'generating', 'scheduled', 'queue', 'Gerando', 'gerando', 'Criando', 'na fila'],
+  policyBlocked: ['정책을 위반', '유해 콘텐츠', "violates? (?:Google'?s )?polic", 'harmful content', 'viola(?:m)? (?:as )?(?:nossas )?pol[íi]tica', 'conte[úu]do (?:nocivo|prejudicial)'],
   // Scene Builder (Korean strings observed live 2026-09-02, see docs/scene-builder.md)
-  sceneAdd: ['장면에 추가', 'Add to [Ss]cene'],
+  sceneAdd: ['장면에 추가', 'Add to [Ss]cene', 'Adicionar à cena'],
   // Flow renamed 장면 만들기 → 새로운 장면 in the tile menu (2026-09-05)
-  sceneNew: ['새로운 장면', '장면 만들기', '새 장면', 'Create scene', 'New scene'],
-  sceneAddClip: ['클립 추가', 'Add clip'],
-  sceneExtend: ['확장', 'Extend'],
+  sceneNew: ['새로운 장면', '장면 만들기', '새 장면', 'Create scene', 'New scene', 'Nova cena', 'Criar cena'],
+  sceneAddClip: ['클립 추가', 'Add clip', 'Adicionar clipe'],
+  sceneExtend: ['확장', 'Extend', 'Estender'],
 } as const;
 
 export type LabelKey = keyof typeof LABELS;
